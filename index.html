@@ -120,6 +120,8 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 
 /* 표 */
 .tools{margin-bottom:14px}
+.pager{display:flex;justify-content:center;align-items:center;gap:14px;padding-top:16px}
+#pgInfo{min-width:64px;text-align:center;font-size:15px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
 .tools select{width:auto;height:40px;padding:0 12px;border-radius:9px;font-size:15px;font-weight:600}
 .tablewrap{max-height:680px;overflow:auto;border-top:1px solid var(--line)}
 table{width:100%;border-collapse:collapse;font-size:16px}
@@ -301,6 +303,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
             <tbody id="tbodyL"></tbody>
           </table>
         </div>
+        <div class="pager hide" id="pagerL"><button class="ghost small" id="pgPrev">이전</button><span id="pgInfo"></span><button class="ghost small" id="pgNext">다음</button></div>
       </div>
       <p class="empty">찾은 책이 여기에 나옵니다</p>
     </div>
@@ -382,7 +385,7 @@ let libs = store.get('libs', DEFAULT_LIBS);
 let selected = store.get('selected', []);
 let shelf = store.get('shelf', {});
 let catalog = store.get('catalog', []);
-const S = {L:[], R:[], Rtitle:''};   // 왼쪽·오른쪽 결과
+const S = {L:[], R:[], Rtitle:'', Lpage:0};   // 왼쪽·오른쪽 결과
 
 // ---------------- 설정 ----------------
 function renderLibs(){
@@ -478,9 +481,12 @@ function paintL(){
   $('boxL').classList.toggle('hide', !S.L.length);
   const pop = S.Lmode === 'pop';
   $('mineL').parentElement.classList.toggle('hide', pop);
-  const shown = S.L.slice(0, viewN());
+  const shown = pageL(), from = S.Lpage * viewN(), pages = Math.ceil(S.L.length / viewN());
   const rows = shown.filter(b => pop || !$('mineL').checked || holdsMine(b));
-  $('infoL').textContent = !S.L.length ? '' : pop ? `${esc(libName(myLib()))} 대출 순위 · ${S.L.length}권 중 ${shown.length}권` : `${S.L.length}권 중 ${shown.length}권 · 우리 도서관 ${shown.filter(holdsMine).length}권`;
+  const range = pages > 1 ? `${from + 1}~${from + shown.length}번` : `${shown.length}권`;
+  $('infoL').textContent = !S.L.length ? '' : pop ? `${esc(libName(myLib()))} 대출 순위 · ${S.L.length}권 중 ${range}` : `${S.L.length}권 중 ${range} · 우리 도서관 ${shown.filter(holdsMine).length}권`;
+  $('pagerL').classList.toggle('hide', pages <= 1);
+  $('pgInfo').textContent = `${S.Lpage + 1} / ${pages}`; $('pgPrev').disabled = S.Lpage <= 0; $('pgNext').disabled = S.Lpage >= pages - 1;
   if(!rows.length){ $('tbodyL').innerHTML = `<tr><td colspan="5" class="hint">${S.L.length ? '해당 없음' : ''}</td></tr>`; return; }
   $('tbodyL').innerHTML = rows.map(b => {
     const i = S.L.indexOf(b);
@@ -554,7 +560,7 @@ function rowOf(code){ return S[code[0]][+code.slice(1)]; }
       try{
         const got = docsOf(await api('recommandList', {isbn13:seed.isbn, type:'reader'})).map(d => toBook(d, '비슷한 책: ' + seed.title));
         if(!got.length){ msg('msgL','이 책으로는 함께 빌린 책 데이터가 없습니다.','warn'); return; }
-        S.L = dedupe(got); S.Lmode = 'kw'; await ensureChecked();
+        S.L = dedupe(got); S.Lmode = 'kw'; S.Lpage = 0; await ensureChecked();
       }catch(err){ msg('msgL', esc(err.message), 'bad'); }
       finally{ busy('L', false); }
     }
@@ -562,9 +568,9 @@ function rowOf(code){ return S[code[0]][+code.slice(1)]; }
 });
 $('mineL').onchange = paintL;
 document.querySelectorAll('input[name="fR"]').forEach(r => r.onchange = paintR);
-$('allL').onclick = () => { S.L.slice(0, viewN()).filter(b => !$('mineL').checked || holdsMine(b)).forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
+$('allL').onclick = () => { pageL().filter(b => !$('mineL').checked || holdsMine(b)).forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
 $('allR').onclick = () => { filterR().forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
-function busy(side, on){ (side === 'L' ? ['runKw','runPop','viewN'] : ['runList']).forEach(id => $(id).disabled = on); }
+function busy(side, on){ if(side === 'L') S.busyL = on; (side === 'L' ? ['runKw','runPop','viewN'] : ['runList']).forEach(id => $(id).disabled = on); }
 function doneL(){ msg('msgL',''); paintL(); }
 
 // ---------------- 왼쪽: 주제어 ----------------
@@ -581,7 +587,7 @@ $('runKw').onclick = async () => {
     }
     pool = dedupe(pool);
     if($('kwSort').checked) pool.sort((a,b) => (+b.loans||0) - (+a.loans||0));
-    S.L = pool.slice(0, 100); S.Lmode = 'kw';
+    S.L = pool.slice(0, 100); S.Lmode = 'kw'; S.Lpage = 0;
     if(!S.L.length){ msg('msgL','찾은 도서가 없습니다. 더 넓은 단어로 바꿔 보세요.','warn'); paintL(); return; }
     await ensureChecked();
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
@@ -589,13 +595,20 @@ $('runKw').onclick = async () => {
 };
 // 화면에 보이는 책만 소장 확인
 const viewN = () => +$('viewN').value;
+function pageL(){ const n = viewN(); S.Lpage = Math.max(0, Math.min(S.Lpage || 0, Math.ceil(S.L.length / n) - 1)); return S.L.slice(S.Lpage * n, S.Lpage * n + n); }
+async function turnL(step){
+  if(S.busyL) return;
+  S.Lpage += step; busy('L', true);
+  try{ await ensureChecked(); document.querySelector('#boxL .tablewrap').scrollTop = 0; }catch(e){ msg('msgL', esc(e.message), 'bad'); } finally{ busy('L', false); }
+}
+$('pgPrev').onclick = () => turnL(-1); $('pgNext').onclick = () => turnL(1);
 async function ensureChecked(){
-  const todo = S.L.slice(0, viewN()).filter(b => b.libs === null && !b.err);
+  const todo = pageL().filter(b => b.libs === null && !b.err);
   paintL();
   if(todo.length && await checkHoldings(todo, 'msgL') === false){ paintL(); return; }
   doneL();
 }
-$('viewN').onchange = async () => { busy('L', true); try{ await ensureChecked(); }catch(e){ msg('msgL', esc(e.message), 'bad'); } finally{ busy('L', false); } };
+$('viewN').onchange = async () => { S.Lpage = 0; busy('L', true); try{ await ensureChecked(); }catch(e){ msg('msgL', esc(e.message), 'bad'); } finally{ busy('L', false); } };
 
 // ---------------- 왼쪽: 인기도서 ----------------
 $('runPop').onclick = async () => {
@@ -606,7 +619,7 @@ $('runPop').onclick = async () => {
     if($('popKdc').value !== '') p.kdc = $('popKdc').value;
     const label = [$('popAge').selectedOptions[0].text, $('popKdc').selectedOptions[0].text].filter(t => t !== '전체').join(' · ') || '전체';
     S.L = dedupe(docsOf(await api('loanItemSrchByLib', p)).map(d => toBook(d, '인기대출: ' + label)));
-    S.L.forEach(b => { b.libs = [[myLib(), libName(myLib())]]; }); S.Lmode = 'pop';
+    S.L.forEach(b => { b.libs = [[myLib(), libName(myLib())]]; }); S.Lmode = 'pop'; S.Lpage = 0;
     msg('msgL', S.L.length ? '' : '대출 기록이 없습니다. 기간을 넓혀 보세요.', 'warn');
     paintL();
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
