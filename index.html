@@ -94,10 +94,14 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 .seg b{font-weight:700;color:var(--c-dark);margin-left:7px}
 
 /* 추천목록 */
-.src{display:flex;align-items:flex-start;gap:12px;padding:7px 0}
+.src{padding:3px 0}
 .src+.src{border-top:1px solid var(--soft)}
-.srcname{flex:0 0 240px;font-size:16px;font-weight:600;padding-top:7px}
-.pills{display:flex;flex-wrap:wrap;gap:8px;flex:1}
+.srcname{display:flex;align-items:center;gap:8px;width:100%;height:44px;padding:0;border:none;background:none;color:var(--ink);font-size:16px;font-weight:600;text-align:left}
+.srcname:hover{background:none;color:var(--c-dark)}
+.srcname i{font-style:normal;font-size:14px;font-weight:500;color:var(--faint)}
+.srcname::after{content:'';width:0;height:0;border-left:6px solid currentColor;border-top:5px solid transparent;border-bottom:5px solid transparent;opacity:.55;transition:transform .15s}
+.srcname[aria-expanded=true]::after{transform:rotate(90deg)}
+.pills{display:flex;flex-wrap:wrap;gap:8px;padding:2px 0 12px}
 .pill{height:38px;padding:0 15px;border:1.5px solid var(--edge);border-radius:999px;background:#fff;color:var(--ink);font-size:15.5px;font-weight:600}
 .pill:hover{background:#fff;border-color:var(--c);color:var(--c-dark)}
 .pill.on,.pill.on:hover{background:var(--c);border-color:var(--c);color:#fff}
@@ -169,7 +173,6 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
   .cols{grid-template-columns:1fr;grid-template-areas:"a" "c" "b" "d"}
   header{padding-top:72px} header h1{font-size:34px}
   .wrap{padding:16px 16px 56px}
-  .src{flex-wrap:wrap} .srcname{flex-basis:100%;padding-top:0}
   #selTitle{width:100%}
 }
 @media (max-width:640px){.line{flex-wrap:wrap} .line>input{flex:1 1 100%!important} .tablewrap{overflow-x:auto} .tablewrap table{min-width:660px}}
@@ -229,7 +232,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
           </select>
           <button id="runKw">찾기</button>
         </div>
-        <label class="check"><input type="checkbox" id="kwSort" checked> 대출 많은 순</label>
+        <span class="seg"><label><input type="radio" name="kwSort" value="new"><span>최신순</span></label><label><input type="radio" name="kwSort" value="loan" checked><span>대출 많은 순</span></label></span>
       </div>
       <div id="tab-pop" class="hide">
         <div class="line">
@@ -387,6 +390,7 @@ let libs = store.get('libs', DEFAULT_LIBS);
 let selected = store.get('selected', []);
 let shelf = store.get('shelf', {});
 let catalog = store.get('catalog', []);
+const openSrc = new Set(store.get('openSrc', []));
 const S = {L:[], R:[], Rtitle:'', Lpage:0};   // 왼쪽·오른쪽 결과
 
 // ---------------- 설정 ----------------
@@ -516,7 +520,7 @@ function paintL(){
       <td class="ck"><input type="checkbox" data-sel="L${i}" ${isSel(b)?'checked':''} aria-label="선택"></td>
       <td><b>${esc(b.title)}</b><br><span class="tag">${esc(b.author)} · ${esc(b.publisher)}${b.year?' · '+esc(b.year):''}</span>
         ${starsHtml(b) ? '<br>' + starsHtml(b) : ''}</td>
-      <td class="tag">${esc(b.kdc)} ${esc(b.kdcName)}${audience(b.add)?'<br>'+audience(b.add):''}${b.loans?'<br>대출 '+esc(b.loans)+'회':''}</td>
+      <td class="tag">${esc(b.kdc)} ${esc(b.kdcName)}${audience(b.add)?'<br>'+audience(b.add):''}</td>
       <td>${libsHtml}</td><td>${loan}${loan&&like?'<br>':''}${like}</td></tr>`;
   }).join('');
 }
@@ -591,23 +595,25 @@ function doneL(){ msg('msgL',''); paintL(); }
 // ---------------- 왼쪽: 주제어 ----------------
 $('runKw').onclick = async () => {
   const kw = $('kw').value.trim(); if(!kw){ msg('msgL','주제어를 입력하세요.','warn'); return; }
-  const age = $('kwAge').value;
+  const age = $('kwAge').value, sortBy = document.querySelector('input[name="kwSort"]:checked').value;
   busy('L', true); progress('msgL', '도서를 찾는 중…');
   try{
     let pool = [];
     for(let page = 1; page <= 3 && pool.length < 100; page++){
-      const got = docsOf(await api('srchBooks', {keyword:kw, pageNo:page, pageSize:50})).map(d => toBook(d, '주제어: ' + kw));
+      const got = docsOf(await api('srchBooks', {keyword:kw, pageNo:page, pageSize:50, sort:sortBy === 'new' ? 'pubYear' : 'loan', order:'desc'})).map(d => toBook(d, '주제어: ' + kw));
       pool = pool.concat(got.filter(b => ageOk(b, age)));
       if(got.length < 50) break;
     }
     pool = dedupe(pool);
-    if($('kwSort').checked) pool.sort((a,b) => (+b.loans||0) - (+a.loans||0));
+    const byLoan = (a,b) => (+b.loans||0) - (+a.loans||0);
+    pool.sort(sortBy === 'new' ? (a,b) => (parseInt(b.year)||0) - (parseInt(a.year)||0) || byLoan(a,b) : byLoan);
     S.L = pool.slice(0, 100); S.Lmode = 'kw'; S.Lpage = 0;
     if(!S.L.length){ msg('msgL','찾은 도서가 없습니다. 더 넓은 단어로 바꿔 보세요.','warn'); paintL(); return; }
     await ensureChecked();
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
   finally{ busy('L', false); }
 };
+document.querySelectorAll('input[name="kwSort"]').forEach(r => { r.onchange = () => { if($('kw').value.trim() && S.Lmode === 'kw' && S.L.length && !S.busyL) $('runKw').click(); }; });
 // 화면에 보이는 책만 소장 확인
 const viewN = () => +$('viewN').value;
 function pageL(){ const n = viewN(); S.Lpage = Math.max(0, Math.min(S.Lpage || 0, Math.ceil(S.L.length / n) - 1)); return S.L.slice(S.Lpage * n, S.Lpage * n + n); }
@@ -663,7 +669,7 @@ function paintCatalog(){
   const keepSrc = $('listSrc').value;
   $('listSrc').innerHTML = SOURCES.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   if(keepSrc) $('listSrc').value = keepSrc;
-  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><span class="srcname">${esc(src.name)}</span><span class="pills">${
+  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}<i>${catalog.filter(c => c.src === src.id).length || ''}</i></button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${
     catalog.filter(c => c.src === src.id).map(c => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(c.name)}<i>${c.books.length}</i></button>`).join('')
     }<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
   $('manage').innerHTML = catalog.map(c => `<div class="mrow"><span>${esc(listLabel(c))} · ${c.books.length}권${c.feed ? ' · 자동' : ''}</span>
@@ -673,7 +679,7 @@ function paintCatalog(){
 function csvCell(v){ v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; }
 async function runCatalog(c){
   S.R = c.books.map(b => toBook({bookname:b.t, authors:b.a, publisher:b.p, isbn13:b.isbn, g:b.g, auto:b.auto}, listLabel(c)));
-  S.Rtitle = listLabel(c); paintCatalog();
+  S.Rtitle = listLabel(c); openSrc.add(c.src); paintCatalog();
   document.querySelector('input[name="fR"][value="all"]').checked = true;
   paintR();
   if(!$('key').value.trim()){
@@ -694,7 +700,8 @@ function showManage(on){ $('addBox').classList.toggle('hide', !on); setTimeout(m
 $('manageBtn').onclick = () => showManage($('addBox').classList.contains('hide'));
 $('listSrc').addEventListener('change', markAdd);
 function onListClick(e){
-  const t = e.target.closest('[data-add],[data-rm],[data-dl],[data-run]'); if(!t) return;
+  const t = e.target.closest('[data-add],[data-rm],[data-dl],[data-run],[data-tog]'); if(!t) return;
+  if(t.dataset.tog){ openSrc.has(t.dataset.tog) ? openSrc.delete(t.dataset.tog) : openSrc.add(t.dataset.tog); store.set('openSrc', [...openSrc]); paintCatalog(); return; }
   if(t.dataset.add){ if(t.classList.contains('open')){ showManage(false); return; } $('listSrc').value = t.dataset.add; showManage(true); $('listPaste').focus(); return; }
   if(t.dataset.rm){
     if(!t.dataset.arm){ t.dataset.arm = 1; t.textContent = '정말 삭제'; setTimeout(() => { delete t.dataset.arm; t.textContent = '삭제'; }, 3000); return; }
