@@ -550,7 +550,7 @@ function rowOf(code){ return S[code[0]][+code.slice(1)]; }
     if(c){
       const b = rowOf(c); e.target.disabled = true;
       try{ const res = (await api('bookExist', {libCode:myLib(), isbn13:b.isbn})).result || {};
-        b.loan = (res.hasBook === 'Y' ? (res.loanAvailable === 'Y' ? '대출 가능' : '대출 중') : '미소장') + ' (전날 기준)'; }
+        b.loan = (res.hasBook === 'Y' ? (res.loanAvailable === 'Y' ? '대출 가능' : '대출 중') : '미소장') + ' (어제 기준)'; }
       catch(err){ b.loan = '확인 실패'; }
       paintAll();
     }
