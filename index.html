@@ -123,21 +123,21 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 .pager{display:flex;justify-content:center;align-items:center;gap:14px;padding-top:16px}
 #pgInfo{min-width:64px;text-align:center;font-size:15px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
 .tools select{width:auto;height:40px;padding:0 12px;border-radius:9px;font-size:15px;font-weight:600}
-.tablewrap{max-height:680px;overflow:auto;border-top:1px solid var(--line)}
-table{width:100%;border-collapse:collapse;font-size:16px}
-th,td{border-bottom:1px solid var(--soft);padding:13px 10px;text-align:left;vertical-align:top}
+.tablewrap{max-height:680px;overflow-x:hidden;overflow-y:auto;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:16px;table-layout:fixed}
+th small{display:block;font-size:12px;font-weight:500}
+.loan{font-size:14.5px;font-weight:700;white-space:nowrap} .loan.ok{color:var(--ok)} .loan.out{color:var(--warn)}
+th,td{border-bottom:1px solid var(--soft);padding:13px 10px;text-align:left;vertical-align:top;overflow-wrap:anywhere;word-break:keep-all}
 th{font-size:13.5px;color:var(--faint);font-weight:600;background:#fff;position:sticky;top:0;z-index:1;white-space:nowrap;padding-top:10px;padding-bottom:10px;box-shadow:0 1px 0 var(--line)}
 td b{font-size:16.5px;font-weight:700}
 td.ck{width:40px;text-align:center}
 td.ck input{width:21px;height:21px}
-td.tag{white-space:nowrap}
-#tbodyL td:nth-child(2),#tbodyR td:nth-child(3){min-width:220px}
 td.num{width:34px;color:var(--faint);font-size:14px;font-variant-numeric:tabular-nums}
 td button.small{height:auto;padding:3px 8px;border:none;background:none;color:var(--c-dark);font-size:14.5px;border-radius:7px;margin:0!important}
 td button.small:hover{background:var(--c-soft)}
 tr.mine{background:var(--ok-soft)}
 tr.mine td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
-.chip{display:inline-block;white-space:nowrap;background:var(--soft);border-radius:999px;padding:2px 10px;margin:2px 4px 2px 0;font-size:13.5px;font-weight:600}
+.chip{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:top;white-space:nowrap;background:var(--soft);border-radius:999px;padding:2px 10px;margin:2px 4px 2px 0;font-size:13.5px;font-weight:600}
 .chip.me{background:var(--ok);color:#fff}
 .chip.star{background:var(--star);color:var(--star-ink)}
 .ox{font-weight:700;font-size:16px} .ox.o{color:var(--ok)} .ox.x{color:var(--bad)}
@@ -172,7 +172,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
   .src{flex-wrap:wrap} .srcname{flex-basis:100%;padding-top:0}
   #selTitle{width:100%}
 }
-@media (max-width:640px){.line{flex-wrap:wrap} .line>input{flex:1 1 100%!important} .tablewrap table{min-width:660px}}
+@media (max-width:640px){.line{flex-wrap:wrap} .line>input{flex:1 1 100%!important} .tablewrap{overflow-x:auto} .tablewrap table{min-width:660px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -299,7 +299,8 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
         </div>
         <div class="tablewrap">
           <table>
-            <thead><tr><th></th><th>도서</th><th>분류</th><th>소장 도서관</th><th></th></tr></thead>
+            <colgroup><col style="width:44px"><col style="width:31%"><col style="width:15%"><col><col style="width:104px"></colgroup>
+            <thead><tr><th></th><th>도서</th><th>분류</th><th>소장 도서관</th><th>대출<small>어제 기준</small></th></tr></thead>
             <tbody id="tbodyL"></tbody>
           </table>
         </div>
@@ -324,7 +325,8 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
         </div>
         <div class="tablewrap">
           <table>
-            <thead><tr><th></th><th></th><th>도서</th><th>대상</th><th>우리 도서관</th><th>다른 도서관</th></tr></thead>
+            <colgroup><col style="width:44px"><col style="width:36px"><col><col style="width:15%"><col style="width:116px"><col style="width:24%"></colgroup>
+            <thead><tr><th></th><th></th><th>도서</th><th>대상</th><th>우리 도서관<small>대출은 어제 기준</small></th><th>다른 도서관</th></tr></thead>
             <tbody id="tbodyR"></tbody>
           </table>
         </div>
@@ -446,6 +448,21 @@ function dedupe(list){ const seen = new Set(); return list.filter(b => { const k
 const starOf = isbn => (shelf[isbn] && shelf[isbn].lists) || [];
 const starsHtml = b => starOf(b.isbn).filter(l => !String(b.source||'').startsWith(l)).map(l => `<span class="chip star">★ ${esc(l)}</span>`).join('');
 
+// 우리 도서관 대출 상태: 정보나루 기준(어제), 하루 동안 기억
+const loanHtml = b => b.loan === '가능' ? '<span class="loan ok">대출 가능</span>' : b.loan === '중' ? '<span class="loan out">대출 중</span>' : `<span class="tag">${esc(b.loan)}</span>`;
+const loanHit = b => { const h = store.get('loan.' + myLib() + '.' + b.isbn, null); return h && h.d === today() ? h.s : ''; };
+async function loanOf(b){
+  const hit = loanHit(b); if(hit) return hit;
+  const res = (await api('bookExist', {libCode:myLib(), isbn13:b.isbn})).result || {};
+  const s = res.hasBook === 'Y' ? (res.loanAvailable === 'Y' ? '가능' : '중') : '확인 안 됨';
+  store.set('loan.' + myLib() + '.' + b.isbn, {d:today(), s}); return s;
+}
+async function checkLoans(list){
+  if(!$('key').value.trim()) return;
+  const todo = list.filter(b => holdsMine(b) && b.isbn && !b.loan);
+  if(calls().n + todo.filter(b => !loanHit(b)).length > 500) return;
+  await mapLimit(todo, 4, async b => { try{ b.loan = await loanOf(b); }catch(e){} });
+}
 async function checkHoldings(list, el){
   const need = list.filter(b => b.isbn && !cacheGet(b.isbn)).length;
   if(need && calls().n + need > 500){
@@ -492,8 +509,8 @@ function paintL(){
     const i = S.L.indexOf(b);
     const libsHtml = b.err ? `<span class="tag" style="color:var(--bad)">${esc(b.err)}</span>`
       : b.libs === null ? '<span class="tag">확인 안 함</span>'
-      : b.libs.length ? b.libs.map(l => `<span class="chip ${l[0]===myLib()?'me':''}">${esc(shortLib(l[1]))}</span>`).join('') : '<span class="tag">제주 소장 없음</span>';
-    const loan = b.loan ? `<span class="tag">${esc(b.loan)}</span>` : (holdsMine(b) && b.isbn ? `<button class="small ghost" data-loan="L${i}">대출 확인</button>` : '');
+      : b.libs.length ? [...b.libs].sort((x, y) => (y[0] === myLib()) - (x[0] === myLib())).map(l => `<span class="chip ${l[0]===myLib()?'me':''}">${esc(shortLib(l[1]))}</span>`).join('') : '<span class="tag">제주 소장 없음</span>';
+    const loan = b.loan ? loanHtml(b) : (holdsMine(b) && b.isbn ? `<button class="small ghost" data-loan="L${i}">대출 상태</button>` : '');
     const like = b.isbn ? `<button class="small ghost" data-like="L${i}" style="margin-top:4px">비슷한 책</button>` : '';
     return `<tr class="${!pop && holdsMine(b)?'mine':''}">
       <td class="ck"><input type="checkbox" data-sel="L${i}" ${isSel(b)?'checked':''} aria-label="선택"></td>
@@ -520,7 +537,7 @@ function paintR(){
     const i = S.R.indexOf(b);
     const me = b.err ? `<span class="tag" style="color:var(--bad)">${esc(b.err)}</span>`
       : b.libs === null ? '<span class="tag">확인 전</span>'
-      : holdsMine(b) ? `<span class="ox o">소장</span><br>${b.loan ? `<span class="tag">${esc(b.loan)}</span>` : `<button class="small ghost" data-loan="R${i}">대출 확인</button>`}`
+      : holdsMine(b) ? `<span class="ox o">소장</span><br>${b.loan ? loanHtml(b) : (b.isbn ? `<button class="small ghost" data-loan="R${i}">대출 상태</button>` : '')}`
       : '<span class="ox x">미소장</span>';
     const others = (b.libs||[]).filter(l => l[0] !== myLib());
     const where = b.libs === null || b.err ? '' : others.length
@@ -549,9 +566,7 @@ function rowOf(code){ return S[code[0]][+code.slice(1)]; }
     const c = e.target.dataset.loan, lk = e.target.dataset.like;
     if(c){
       const b = rowOf(c); e.target.disabled = true;
-      try{ const res = (await api('bookExist', {libCode:myLib(), isbn13:b.isbn})).result || {};
-        b.loan = (res.hasBook === 'Y' ? (res.loanAvailable === 'Y' ? '대출 가능' : '대출 중') : '미소장') + ' (어제 기준)'; }
-      catch(err){ b.loan = '확인 실패'; }
+      try{ b.loan = await loanOf(b); }catch(err){ b.loan = '확인 실패'; }
       paintAll();
     }
     if(lk){
@@ -606,6 +621,7 @@ async function ensureChecked(){
   const todo = pageL().filter(b => b.libs === null && !b.err);
   paintL();
   if(todo.length && await checkHoldings(todo, 'msgL') === false){ paintL(); return; }
+  await checkLoans(pageL());
   doneL();
 }
 $('viewN').onchange = async () => { S.Lpage = 0; busy('L', true); try{ await ensureChecked(); }catch(e){ msg('msgL', esc(e.message), 'bad'); } finally{ busy('L', false); } };
@@ -621,7 +637,7 @@ $('runPop').onclick = async () => {
     S.L = dedupe(docsOf(await api('loanItemSrchByLib', p)).map(d => toBook(d, '인기대출: ' + label)));
     S.L.forEach(b => { b.libs = [[myLib(), libName(myLib())]]; }); S.Lmode = 'pop'; S.Lpage = 0;
     msg('msgL', S.L.length ? '' : '대출 기록이 없습니다. 기간을 넓혀 보세요.', 'warn');
-    paintL();
+    paintL(); await checkLoans(pageL()); paintL();
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
   finally{ busy('L', false); }
 };
@@ -669,7 +685,7 @@ async function runCatalog(c){
   busy('R', true);
   try{
     await fillIsbn(S.R, 'msgR', c);
-    if(await checkHoldings(S.R, 'msgR')) msg('msgR','');
+    if(await checkHoldings(S.R, 'msgR')){ await checkLoans(S.R); msg('msgR',''); }
   }catch(err){ msg('msgR', esc(err.message), 'bad'); }
   finally{ busy('R', false); paintR(); }
 }
@@ -843,7 +859,8 @@ $('testKey').onclick = async () => {
   try{ await api('libSrch', {region:REGION, pageSize:1}); store.set('keyOk', today()); paintKey(); msg('setupMsg',''); $('adminBox').open = false; }
   catch(e){ store.del('keyOk'); paintKey(); msg('setupMsg', esc(e.message), 'bad'); }
 };
-$('lib').onchange = () => { store.set('myLib', myLib()); paintAll(); };
+$('lib').onchange = async () => { store.set('myLib', myLib()); S.L.concat(S.R).forEach(b => { b.loan = null; }); paintAll(); await checkLoans(pageL().concat(S.R)); paintAll(); };
+try{ Object.keys(localStorage).filter(k => k.startsWith('jcur.loan.')).forEach(k => { if(JSON.parse(localStorage[k]).d !== today()) localStorage.removeItem(k); }); }catch(e){}
 $('saveKey').onchange = () => { if($('saveKey').checked) store.set('key', $('key').value.trim()); else store.del('key'); };
 $('key').onchange = () => { if($('saveKey').checked) store.set('key', $('key').value.trim()); store.del('keyOk'); paintKey(); };
 function paintKey(){ const k = $('key').value.trim(), ok = store.get('keyOk',''), el = $('keyState');
