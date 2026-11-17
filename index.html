@@ -225,7 +225,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
         <div class="line">
           <input type="text" id="kw" placeholder="주제어 입력 (예: 제주 바다)" aria-label="주제어" style="flex:3">
           <select id="kwAge" aria-label="대상">
-            <option value="">대상 전체</option><option value="child">어린이</option><option value="teen">청소년</option><option value="adult">일반</option>
+            <option value="">대상 전체</option><option value="young">어린이·청소년</option><option value="adult">일반</option>
           </select>
           <button id="runKw">찾기</button>
         </div>
@@ -436,7 +436,7 @@ function toBook(d, src){
     publisher:d.publisher || '', year:d.publication_year || '', kdc:d.class_no || '', kdcName:d.class_nm || '',
     add:d.addition_symbol || '', loans:d.loan_count || '', source:src || '', g:d.g || '', libs:null, loan:null, auto:!!d.auto};
 }
-const AGE = {child:['7'], teen:['4'], adult:['0','1','2','3','9']};
+const AGE = {young:['7','4'], adult:['0','1','2','3','9']};
 const ageOk = (b, a) => !a || AGE[a].includes(String(b.add||'').charAt(0));
 const audience = add => ({'0':'교양','1':'실용','4':'청소년','5':'중고 참고서','6':'초등 참고서','7':'아동','9':'전문'})[String(add||'').charAt(0)] || '';
 const holdsMine = b => (b.libs || []).some(l => l[0] === myLib());
