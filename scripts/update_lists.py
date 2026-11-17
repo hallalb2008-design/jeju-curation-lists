@@ -21,6 +21,7 @@ MANUAL = ROOT / "manual"
 NL_KEY = os.environ.get("NL_API_KEY", "").strip()
 D4L_KEY = os.environ.get("DATA4LIB_KEY", "").strip()
 MAX_CALLS = int(os.environ.get("MAX_CALLS", "450"))
+D4L_PAUSE = float(os.environ.get("D4L_PAUSE", "0.7"))
 REFRESH_DAYS = int(os.environ.get("REFRESH_DAYS", "30"))
 NL_MONTHS = int(os.environ.get("NL_MONTHS", "12"))          # 최근 몇 달 치 사서추천도서를 유지할지
 REGION = "39"                                                 # 제주
@@ -39,17 +40,17 @@ def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
 
-def get(url, params, as_json=True):
+def get(url, params, as_json=True, tries=3, timeout=30):
     global calls
     q = urllib.parse.urlencode(params)
     req = urllib.request.Request(url + "?" + q, headers={"User-Agent": "jeju-curation-lists/1.0"})
-    for attempt in range(3):
+    for attempt in range(tries):
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 body = r.read().decode("utf-8", "replace")
             break
         except Exception as e:  # 일시 오류는 두 번 더 시도
-            if attempt == 2:
+            if attempt == tries - 1:
                 raise
             log("retry", url, e)
             time.sleep(3)
@@ -61,7 +62,8 @@ def d4l(endpoint, params):
     if not D4L_KEY:
         raise RuntimeError("DATA4LIB_KEY 없음")
     calls += 1
-    data = get(D4L + endpoint, {**params, "authKey": D4L_KEY, "format": "json"})
+    time.sleep(D4L_PAUSE)  # 정보나루에 호출이 몰리지 않게 간격을 둔다
+    data = get(D4L + endpoint, {**params, "authKey": D4L_KEY, "format": "json"}, tries=2, timeout=15)
     resp = data.get("response", {})
     if resp.get("error"):
         raise RuntimeError("정보나루: " + str(resp["error"]))
