@@ -991,7 +991,7 @@ const DEFAULT_FEED = 'https://raw.githubusercontent.com/hallalb2008-design/jeju-
 $('feedUrl').value = store.get('feedUrl', '') || DEFAULT_FEED;
 paintCount(); paintCatalog(); paintShelf(); paintFeed(); paintSel(); paintAll(); paintTrends(); liveTrends();
 $('jsOff').remove();
-if($('feedUrl').value.trim() && store.get('feedPulled', '') !== today()) pullFeed(true);
+if($('feedUrl').value.trim()) pullFeed(true);   // 열 때마다 최신 목록을 받는다
 })();
 </script>
 </body>
