@@ -299,9 +299,9 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
           <select id="listSrc" aria-label="출처" class="hide"></select>
           <label class="filebtn">파일 올리기<input type="file" id="listFile" accept=".xlsx,.xls,.csv,.txt" style="display:none"></label>
           <button class="quiet" id="tplList">양식 받기</button>
-          <span class="hint">엑셀(xlsx)·CSV 파일, 첫 줄에 서명·저자·출판사·ISBN</span>
+          <span class="hint">파일 올리기·엑셀 표 붙여넣기·파일 끌어다 놓기 모두 됩니다. 첫 줄에 서명·저자·ISBN (ISBN이 있으면 저자는 비워도 됩니다)</span>
         </div>
-        <textarea id="listPaste" placeholder="엑셀 표를 복사해 붙여넣거나, 엑셀·CSV 파일을 여기로 끌어다 놓으세요&#10;서명 · 저자 · 출판사 · ISBN · 대상" aria-label="목록 붙여넣기"></textarea>
+        <textarea id="listPaste" placeholder="엑셀 표를 복사해 붙여넣거나, 엑셀·CSV 파일을 여기로 끌어다 놓으세요&#10;서명 · 저자 · ISBN" aria-label="목록 붙여넣기"></textarea>
         <div class="bar" style="margin:10px 0"><button id="runList">목록 넣기</button></div>
         <div id="manage"></div>
         <div class="bar" style="margin-top:8px">
@@ -861,7 +861,7 @@ $('listFile').onchange = async e => {
 $('addBox').addEventListener('dragover', e => { $('addBox').classList.add('drop'); });
 $('addBox').addEventListener('dragleave', e => { if(!$('addBox').contains(e.relatedTarget)) $('addBox').classList.remove('drop'); });
 $('addBox').addEventListener('drop', e => { $('addBox').classList.remove('drop'); const fs = e.dataTransfer && e.dataTransfer.files; if(fs && fs.length){ $('listFile').files = fs; $('listFile').onchange({target:$('listFile')}); } });
-$('tplList').onclick = () => download('추천목록_입력양식.csv', '﻿서명,저자,출판사,ISBN,대상\n');
+$('tplList').onclick = () => download('추천목록_입력양식.csv', '﻿서명,저자,ISBN\n');
 $('runList').onclick = async () => {
   const rows = parseTable($('listPaste').value);
   if(!rows.length){ msg('msgR','목록을 붙여 넣거나 CSV를 불러오세요.','warn'); return; }
