@@ -85,10 +85,14 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 .hide+.empty{display:block}
 
 /* 탭 · 선택 단추 */
-.tabs,.seg{display:inline-flex;background:var(--soft);border-radius:10px;padding:4px;gap:2px}
-.tabs button,.seg span{height:38px;padding:0 18px;border:none;border-radius:7px;background:none;color:var(--muted);font-size:16px;font-weight:600;display:inline-flex;align-items:center;cursor:pointer}
-.tabs button:hover,.seg span:hover{background:none;color:var(--ink)}
-.tabs button.on,.seg input:checked+span{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(15,26,43,.16)}
+.seg{display:inline-flex;background:var(--soft);border-radius:10px;padding:4px;gap:2px}
+.seg span{height:38px;padding:0 18px;border:none;border-radius:7px;background:none;color:var(--muted);font-size:16px;font-weight:600;display:inline-flex;align-items:center;cursor:pointer}
+.seg span:hover{background:none;color:var(--ink)}
+.seg input:checked+span{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(15,26,43,.16)}
+.tabs{display:inline-flex;flex-wrap:wrap;gap:6px}
+.tabs button{height:40px;padding:0 18px;border:1.5px solid var(--edge);border-radius:8px;background:#fff;color:var(--ink);font-size:16px;font-weight:700;display:inline-flex;align-items:center;cursor:pointer}
+.tabs button:hover{border-color:var(--night);background:#fff;color:var(--night)}
+.tabs button.on{background:var(--night);border-color:var(--night);color:#fff}
 .seg input{position:absolute;opacity:0;pointer-events:none}
 .seg input:focus-visible+span{outline:3px solid #9bb8f3}
 .seg b{font-weight:700;color:var(--c-dark);margin-left:7px}
