@@ -760,7 +760,7 @@ function paintCatalog(){
   const keepSrc = $('listSrc').value;
   $('listSrc').innerHTML = SOURCES.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   if(keepSrc) $('listSrc').value = keepSrc;
-  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}<i>${catalog.filter(c => c.src === src.id).length || ''}</i></button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${pillsOf(src)}<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
+  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}</button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${pillsOf(src)}<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
   $('manage').innerHTML = catalog.map(c => `<div class="mrow"><span>${esc(listLabel(c))} · ${c.books.length}권${c.feed ? ' · 자동' : ''}</span>
     <button class="quiet" data-dl="${c.id}">CSV</button><button class="quiet" data-rm="${c.id}">삭제</button></div>`).join('');
   markAdd();
