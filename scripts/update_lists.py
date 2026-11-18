@@ -7,6 +7,7 @@
 3) 서명만 있는 책은 정보나루에서 ISBN을 찾는다 (DATA4LIB_KEY).
 4) 책마다 제주 도내 소장 도서관을 정보나루에서 미리 확인해 둔다.
    - 하루 한도(500건)를 넘지 않게 1회 실행당 MAX_CALLS 건까지만 쓰고, 나머지는 다음 실행에 이어서 한다.
+4-1) 정보나루 이달의 키워드, 대출 급상승 도서(제주 소장 포함)를 함께 받는다.
 5) 결과를 data/lists.json 하나로 저장한다. 도우미는 이 파일만 받아 쓰므로 사서는 인증키가 필요 없다.
 
 외부 라이브러리 없이 파이썬 표준 라이브러리만 쓴다.
@@ -142,7 +143,10 @@ def fetch_nl():
             item["c"] = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", b["c"])).strip()[:600]  # 책 소개(나중에 AI 추천 이유 근거)
         groups.setdefault(name, []).append(item)
     lists = [{"src": "nl", "name": n, "books": bs} for n, bs in groups.items()]
-    lists.sort(key=lambda x: x["name"], reverse=True)
+    def ym(n):
+        m = re.match(r"(\d{4})년 (\d{1,2})월", n)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    lists.sort(key=lambda x: ym(x["name"]), reverse=True)
     log(f"사서추천도서 {sum(len(x['books']) for x in lists)}권, 목록 {len(lists)}개")
     return lists
 
@@ -172,13 +176,17 @@ def parse_nlcy(page):
             info[_txt(k)] = _txt(v)
         parts = [x.strip() for x in info.get("도서정보", "").split("|")]
         a = re.sub(r"\s*(지음|글·그림|글|저자)$", "", re.sub(r"^(글·그림|글|지음|저자)\s*:\s*", "", parts[0])) if parts else ""
-        isbn = ""
+        isbn, alt = "", []
         d = re.search(r"fnDetailSearch\(\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*'([^']*)'", blk)
         if d:
-            cands = [clean_isbn(x) for x in d.group(1).split()]
-            isbn = next((x for x in cands if len(x) == 13), next((x for x in cands if x), ""))
+            cands = [c for c in (clean_isbn(x) for x in d.group(1).split()) if c]
+            c13 = [c for c in cands if len(c) == 13]
+            isbn = next((c for c in c13 if c.startswith("979")), c13[0] if c13 else (cands[0] if cands else ""))
+            alt = [c for c in c13 if c != isbn]
         b = {"t": _txt(t.group(1)), "a": a, "p": parts[1] if len(parts) > 1 else "", "isbn": isbn,
              "g": info.get("주제구분", ""), "ym": (int(m.group(1)), int(m.group(2)))}
+        if d and alt:
+            b["alt"] = alt
         if info.get("책소개"):
             b["c"] = info["책소개"][:600]
         out.append(b)
@@ -206,6 +214,46 @@ def fetch_nlcy():
     if not lists:
         raise RuntimeError("국립어린이청소년도서관 목록에서 책을 찾지 못함(홈페이지 구조 변경 또는 접속 차단)")
     return lists
+
+
+# ---------------- 이달의 키워드 · 대출 급상승 (정보나루) ----------------
+def _items(resp, key, inner):
+    out = []
+    for x in resp.get(key, []) or []:
+        x = x.get(inner, x) if isinstance(x, dict) else x
+        if isinstance(x, dict):
+            out.append(x)
+    return out
+
+
+def fetch_trends():
+    tr = {}
+    first = TODAY.replace(day=1)
+    for mon in (first, (first - dt.timedelta(days=1)).replace(day=1)):   # 이번 달이 아직 비었으면 지난달
+        kws = _items(d4l("monthlyKeywords", {"month": mon.strftime("%Y-%m")}), "keywords", "keyword")
+        kws = [{"w": k.get("word", "").strip(), "n": float(k.get("weight") or 0)} for k in kws if k.get("word")]
+        if kws:
+            kws.sort(key=lambda k: -k["n"])
+            tr["month"], tr["keywords"] = mon.strftime("%Y-%m"), kws[:30]
+            break
+    for back in (1, 2, 3):
+        day = TODAY - dt.timedelta(days=back)
+        res = _items(d4l("hotTrend", {"searchDt": day.isoformat()}), "results", "result")
+        res = [r for r in res if r.get("docs")]
+        if not res:
+            continue
+        res.sort(key=lambda r: str(r.get("date", "")), reverse=True)
+        books = []
+        for d in res[0]["docs"]:
+            d = d.get("doc", d)
+            books.append({"t": d.get("bookname", ""), "a": d.get("authors", ""), "p": d.get("publisher", ""),
+                          "y": str(d.get("publication_year", "")), "isbn": clean_isbn(d.get("isbn13", "")),
+                          "kdc": str(d.get("class_no", "")), "kn": d.get("class_nm", ""), "add": str(d.get("addition_symbol", "")),
+                          "rank": d.get("no", ""), "diff": d.get("difference", "")})
+        tr["hot"] = {"date": str(res[0].get("date") or day.isoformat()), "books": [b for b in books if b["t"]]}
+        break
+    log(f"이달의 키워드 {len(tr.get('keywords', []))}개, 대출 급상승 {len(tr.get('hot', {}).get('books', []))}권")
+    return tr
 
 
 # ---------------- manual CSV ----------------
@@ -266,6 +314,7 @@ def fill_isbn(lists, cache):
 
 def fill_holdings(lists, holdings):
     isbns = sorted({b["isbn"] for L in lists for b in L["books"] if b["isbn"]})
+    alts = {b["isbn"]: b["alt"] for L in lists for b in L["books"] if b.get("isbn") and b.get("alt")}
     def stale(i):
         h = holdings.get(i)
         return not h or (TODAY - dt.date.fromisoformat(h["d"])).days >= REFRESH_DAYS
@@ -274,8 +323,13 @@ def fill_holdings(lists, holdings):
     for i in todo:
         if calls >= MAX_CALLS:
             break
-        resp = d4l("libSrchByBook", {"isbn": i, "region": REGION, "pageSize": 50})
-        libs = [[str(x.get("lib", x).get("libCode")), x.get("lib", x).get("libName")] for x in resp.get("libs", [])]
+        libs = []
+        for q in [i] + alts.get(i, []):
+            resp = d4l("libSrchByBook", {"isbn": q, "region": REGION, "pageSize": 50})
+            for x in resp.get("libs", []):
+                l = [str(x.get("lib", x).get("libCode")), x.get("lib", x).get("libName")]
+                if l not in libs:
+                    libs.append(l)
         holdings[i] = {"d": TODAY.isoformat(), "libs": libs}
     left = sum(1 for i in isbns if stale(i))
     return left
@@ -298,16 +352,22 @@ def main():
         lists += [L for L in old.get("lists", []) if L["src"] == "nlcy" and not L.get("manual")]
     lists += read_manual()
     left = None
+    trends = old.get("trends", {})
     if D4L_KEY:
         try:
+            trends = fetch_trends() or trends
+        except Exception as e:
+            log("키워드·급상승 수집 실패(지난번 것 유지):", e)
+        try:
             fill_isbn(lists, isbn_cache)
-            left = fill_holdings(lists, holdings)
+            hot = [{"books": [b for b in trends.get("hot", {}).get("books", []) if b["isbn"]]}]
+            left = fill_holdings(lists + hot, holdings)
         except Exception as e:
             log("정보나루 처리 중 중단:", e)
-    keep = {b["isbn"] for L in lists for b in L["books"] if b["isbn"]}
+    keep = {b["isbn"] for L in lists for b in L["books"] if b["isbn"]} | {b["isbn"] for b in trends.get("hot", {}).get("books", []) if b["isbn"]}
     holdings = {k: v for k, v in holdings.items() if k in keep}
     out = {"type": "jeju-curation-lists", "v": 1, "updated": TODAY.isoformat(),
-           "lists": lists, "holdings": holdings, "isbnCache": isbn_cache,
+           "lists": lists, "trends": trends, "holdings": holdings, "isbnCache": isbn_cache,
            "pending": left}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1), "utf-8")
