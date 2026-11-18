@@ -111,6 +111,7 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 .pill:hover{background:#fff;border-color:var(--c);color:var(--c-dark)}
 .pill.on,.pill.on:hover{background:var(--c);border-color:var(--c);color:#fff}
 .pill i{font-style:normal;font-weight:500;opacity:.6;margin-left:6px}
+#addBox.drop textarea{border-color:var(--night);background:#f3f6fb}
 .years{display:contents}
 .pill.year.open{border-color:var(--c);color:var(--c-dark);box-shadow:inset 0 0 0 1px var(--c)}
 .months{order:9;display:flex;flex-wrap:wrap;gap:8px;width:100%;margin:2px 0 4px 8px;padding:8px 0 4px 14px;border-left:2px solid var(--line)}
@@ -300,7 +301,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
           <button class="quiet" id="tplList">양식 받기</button>
           <span class="hint">엑셀(xlsx)·CSV 파일, 첫 줄에 서명·저자·출판사·ISBN</span>
         </div>
-        <textarea id="listPaste" placeholder="엑셀 표를 복사해 붙여넣기&#10;서명 · 저자 · 출판사 · ISBN · 대상" aria-label="목록 붙여넣기"></textarea>
+        <textarea id="listPaste" placeholder="엑셀 표를 복사해 붙여넣거나, 엑셀·CSV 파일을 여기로 끌어다 놓으세요&#10;서명 · 저자 · 출판사 · ISBN · 대상" aria-label="목록 붙여넣기"></textarea>
         <div class="bar" style="margin:10px 0"><button id="runList">목록 넣기</button></div>
         <div id="manage"></div>
         <div class="bar" style="margin-top:8px">
@@ -421,11 +422,11 @@ const STAGES = ['베이비','플러스','보물상자','초등','청소년','임
 const ymOf = name => { const s = String(name).trim(); let m = /^(\d{4})년\s*(\d{1,2})월$/.exec(s); if(m) return [+m[1], +m[2], m[2] + '월']; m = /^(\d{4})년\s+(.+)$/.exec(s); if(!m) return null; const i = STAGES.findIndex(k => m[2].startsWith(k)); return [+m[1], 100 - (i < 0 ? 99 : i), m[2]]; };
 function pillsOf(src){
   const lists = catalog.filter(c => c.src === src.id), dated = lists.filter(c => ymOf(c.name)), plain = lists.filter(c => !ymOf(c.name));
-  const pill = (c, label) => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(label)}<i>${c.books.length}</i></button>`;
+  const pill = (c, label) => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(label)}</button>`;
   let html = plain.map(c => pill(c, c.name)).join('');
   if(dated.length){
     const years = [...new Set(dated.map(c => ymOf(c.name)[0]))].sort((a, b) => b - a), oy = openYear[src.id];
-    html = years.map(y => { const n = dated.filter(c => ymOf(c.name)[0] === y).reduce((s, c) => s + c.books.length, 0); return `<button class="pill year ${oy === y ? 'open' : ''}" data-yr="${src.id}|${y}" aria-expanded="${oy === y}">${y}년<i>${n}</i></button>`; }).join('') + html;
+    html = years.map(y => { return `<button class="pill year ${oy === y ? 'open' : ''}" data-yr="${src.id}|${y}" aria-expanded="${oy === y}">${y}년</button>`; }).join('') + html;
     if(years.includes(oy)) html += `<span class="months">${dated.filter(c => ymOf(c.name)[0] === oy).sort((a, b) => ymOf(b.name)[1] - ymOf(a.name)[1]).map(c => pill(c, ymOf(c.name)[2])).join('')}</span>`;
   }
   return html;
@@ -519,12 +520,13 @@ async function fillIsbn(list, el, entry){
   const miss = list.filter(b => !b.isbn && b.title);
   if(!miss.length) return;
   await mapLimit(miss, 3, async b => {
-    const ck = 'isbnq.' + norm(b.title + '|' + b.author);
+    const ck = 'isbnq2.' + norm(b.title + '|' + b.author);
     let hit = store.get(ck, null);
     if(!hit){
-      const docs = docsOf(await api('srchBooks', {title:b.title, pageSize:10}));
-      const a0 = norm(String(b.author).split(/[ ,;(]/)[0]);
-      const best = docs.find(d => norm(d.bookname).startsWith(norm(b.title)) && (!a0 || norm(d.authors).includes(a0))) || docs.find(d => norm(d.bookname) === norm(b.title));
+      const aRaw = String(b.author || '').trim().split(/[ ,;(|/]/)[0], a0 = norm(aRaw);
+      const pick = docs => docs.find(d => norm(d.bookname).startsWith(norm(b.title)) && (!a0 || norm(d.authors).includes(a0))) || docs.find(d => norm(d.bookname) === norm(b.title));
+      let best = aRaw ? pick(docsOf(await api('srchBooks', {title:b.title, author:aRaw, pageSize:10}))) : null;   // 짧은 제목은 저자를 함께 넣어야 찾힌다
+      if(!best) best = pick(docsOf(await api('srchBooks', {title:b.title, pageSize:10})));
       hit = best ? {isbn:String(best.isbn13), p:best.publisher} : {isbn:''};
       store.set(ck, hit);
     }
@@ -854,6 +856,11 @@ $('listFile').onchange = async e => {
   if(text.includes('�')) text = new TextDecoder('euc-kr').decode(await f.arrayBuffer());
   $('listPaste').value = text; lastFileName = f.name.replace(/\.[^.]+$/,'');
 };
+// 파일을 목록 넣기 칸에 끌어다 놓기
+['dragover','drop'].forEach(ev => document.addEventListener(ev, e => { if(e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); }));
+$('addBox').addEventListener('dragover', e => { $('addBox').classList.add('drop'); });
+$('addBox').addEventListener('dragleave', e => { if(!$('addBox').contains(e.relatedTarget)) $('addBox').classList.remove('drop'); });
+$('addBox').addEventListener('drop', e => { $('addBox').classList.remove('drop'); const fs = e.dataTransfer && e.dataTransfer.files; if(fs && fs.length){ $('listFile').files = fs; $('listFile').onchange({target:$('listFile')}); } });
 $('tplList').onclick = () => download('추천목록_입력양식.csv', '﻿서명,저자,출판사,ISBN,대상\n');
 $('runList').onclick = async () => {
   const rows = parseTable($('listPaste').value);
