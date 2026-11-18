@@ -288,17 +288,17 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
       <h2>추천목록</h2>
       <span class="tag" id="feedInfo"></span>
       <span class="bar push" style="gap:8px">
-        <button class="ghost small" id="pullFeed">새로 받기</button>
-        <button class="ghost small" id="manageBtn" aria-expanded="false">목록 관리</button>
+        <button class="ghost small" id="manageBtn" aria-expanded="false">내 목록 추가</button>
       </span>
     </div>
     <div class="pbody">
       <div id="catalog"></div>
       <div id="addBox" class="hide">
         <div class="line">
-          <select id="listSrc" aria-label="출처"></select>
-          <label class="filebtn">CSV 파일<input type="file" id="listFile" accept=".csv,.txt" style="display:none"></label>
-          <button class="quiet" id="tplList">양식</button>
+          <select id="listSrc" aria-label="출처" class="hide"></select>
+          <label class="filebtn">파일 올리기<input type="file" id="listFile" accept=".xlsx,.xls,.csv,.txt" style="display:none"></label>
+          <button class="quiet" id="tplList">양식 받기</button>
+          <span class="hint">엑셀(xlsx)·CSV 파일, 첫 줄에 서명·저자·출판사·ISBN</span>
         </div>
         <textarea id="listPaste" placeholder="엑셀 표를 복사해 붙여넣기&#10;서명 · 저자 · 출판사 · ISBN · 대상" aria-label="목록 붙여넣기"></textarea>
         <div class="bar" style="margin:10px 0"><button id="runList">목록 넣기</button></div>
@@ -398,7 +398,7 @@ const SOURCES = [
   {id:'nlcy', name:'국립어린이청소년도서관 추천', short:'국립어린이청소년 추천'},
   {id:'bookstart', name:'북스타트코리아 꾸러미도서', short:'북스타트'},
   {id:'childbook', name:'어린이도서연구회 권장', short:'어도연 권장'},
-  {id:'etc', name:'기타', short:''}
+  {id:'etc', name:'내 목록', short:''}
 ];
 
 const $ = id => document.getElementById(id);
@@ -769,8 +769,8 @@ function paintCatalog(){
   const keepSrc = $('listSrc').value;
   $('listSrc').innerHTML = SOURCES.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   if(keepSrc) $('listSrc').value = keepSrc;
-  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}</button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${pillsOf(src)}<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
-  $('manage').innerHTML = catalog.map(c => `<div class="mrow"><span>${esc(listLabel(c))} · ${c.books.length}권${c.feed ? ' · 자동' : ''}</span>
+  $('catalog').innerHTML = SOURCES.filter(src => catalog.some(c => c.src === src.id)).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}</button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${pillsOf(src)}</span></div>`).join('');
+  $('manage').innerHTML = catalog.filter(c => !c.feed).map(c => `<div class="mrow"><span>${esc(listLabel(c))} · ${c.books.length}권${c.feed ? ' · 자동' : ''}</span>
     <button class="quiet" data-dl="${c.id}">CSV</button><button class="quiet" data-rm="${c.id}">삭제</button></div>`).join('');
   markAdd();
 }
@@ -843,7 +843,14 @@ function rowsToBooks(rows){
 let lastFileName = '';
 $('listFile').onchange = async e => {
   const f = e.target.files[0]; if(!f) return;
-  let text = await f.text();
+  let text;
+  if(/\.xlsx?$/i.test(f.name)){
+    try{
+      if(!window.XLSX) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+      const wb = XLSX.read(await f.arrayBuffer(), {type:'array'});
+      text = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
+    }catch(err){ msg('msgR','엑셀 파일을 읽지 못했습니다. CSV로 저장해서 올려 주세요.','bad'); return; }
+  } else text = await f.text();
   if(text.includes('�')) text = new TextDecoder('euc-kr').decode(await f.arrayBuffer());
   $('listPaste').value = text; lastFileName = f.name.replace(/\.[^.]+$/,'');
 };
@@ -854,7 +861,7 @@ $('runList').onclick = async () => {
   const seen = new Set();
   const books = rowsToBooks(rows).filter(b => { const k = b.isbn || norm(b.t + b.a); if(seen.has(k)) return false; seen.add(k); return true; });
   if(!books.length){ msg('msgR','읽을 수 있는 줄이 없습니다. 첫 줄 제목을 확인하세요.','warn'); return; }
-  const src = $('listSrc').value;
+  const src = 'etc';
   let name = lastFileName || (today() + ' 등록');
   if(catalog.some(c => c.src === src && c.name === name)){ let k = 2; while(catalog.some(c => c.src === src && c.name === `${name} (${k})`)) k++; name = `${name} (${k})`; }
   const c = {id:'L' + Date.now(), src, name, saved:today(), books};
@@ -887,10 +894,8 @@ async function pullFeed(quiet){
 }
 function paintFeed(){
   const url = $('feedUrl').value.trim(), u = store.get('feedUpdated', '');
-  $('pullFeed').classList.toggle('hide', !url);
   $('feedInfo').textContent = url && u ? u + ' 기준' : '';
 }
-$('pullFeed').onclick = () => pullFeed(false);
 $('feedUrl').onchange = () => { store.set('feedUrl', $('feedUrl').value.trim()); paintFeed(); };
 
 // 목록 보관 관리
