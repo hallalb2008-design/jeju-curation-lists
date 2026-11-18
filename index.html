@@ -692,11 +692,11 @@ async function runHot(force){
     if((force || old) && $('key').value.trim()){
       for(const back of [1, 2, 3]){
         const res = listOf(await api('hotTrend', {searchDt:daysAgo(back)}), 'results', 'result').filter(r => (r.docs || []).length).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-        if(res.length){ hot = {date:String(res[0].date || daysAgo(back)), books:res[0].docs.map(d => d.doc || d).map(d => ({t:d.bookname, a:d.authors, p:d.publisher, y:String(d.publication_year || ''), isbn:String(d.isbn13 || ''), kdc:String(d.class_no || ''), kn:d.class_nm || '', add:String(d.addition_symbol || ''), rank:d.no || '', diff:d.difference || ''}))}; t.hot = hot; store.set('trends', t); break; }
+        if(res.length){ const seen = new Set(), books = []; res.flatMap(r => r.docs).map(d => d.doc || d).forEach(d => { const k = String(d.isbn13 || d.bookname); if(seen.has(k)) return; seen.add(k); books.push({t:d.bookname, a:d.authors, p:d.publisher, y:String(d.publication_year || ''), isbn:String(d.isbn13 || ''), kdc:String(d.class_no || ''), kn:d.class_nm || '', add:String(d.addition_symbol || ''), rank:String(books.length + 1), diff:d.difference || ''}); }); hot = {date:String(res[0].date || daysAgo(back)), from:String(res[res.length - 1].date || ''), books}; t.hot = hot; store.set('trends', t); break; }
       }
     }
     if(!hot || !(hot.books || []).length){ S.L = []; S.Lmode = 'hot'; paintL(); msg('msgL', $('key').value.trim() ? '대출 급상승 도서를 받지 못했습니다. 잠시 뒤 다시 불러오세요.' : '아직 받아 둔 급상승 도서가 없습니다. 인증키를 넣으면 바로 불러옵니다.', 'warn'); return; }
-    S.hotDate = hot.date;
+    S.hotDate = hot.from && hot.from !== hot.date ? hot.from.slice(5).replace('-', '.') + '~' + hot.date.slice(5).replace('-', '.') : hot.date;
     S.L = dedupe(hot.books.map(x => { const b = toBook({bookname:x.t, authors:x.a, publisher:x.p, publication_year:x.y, isbn13:x.isbn, class_no:x.kdc, class_nm:x.kn, addition_symbol:x.add}, '대출 급상승'); b.rank = x.rank; b.diff = x.diff; const hit = b.isbn && cacheGet(b.isbn); if(hit) b.libs = hit; return b; }));
     S.Lmode = 'hot'; S.Lpage = 0;
     await ensureChecked(); msg('msgL', '');
