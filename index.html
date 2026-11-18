@@ -124,6 +124,12 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 
 /* 표 */
 .tools{margin-bottom:14px}
+.kwtrend{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px}
+.kwchips{display:contents}
+.kwchip{height:34px;padding:0 13px;border:1px solid var(--edge);border-radius:999px;background:#fff;color:var(--ink);font-size:15px;font-weight:600}
+.kwchip:hover{background:#fff;border-color:var(--c);color:var(--c-dark)}
+.hotrank{display:inline-block;min-width:22px;margin-right:6px;font-weight:700;color:var(--c-dark);font-variant-numeric:tabular-nums}
+.hotup{font-size:13px;font-weight:700;color:#b45c00;margin-left:6px}
 .pager{display:flex;justify-content:center;align-items:center;gap:14px;padding-top:16px}
 #pgInfo{min-width:64px;text-align:center;font-size:15px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
 .tools select{width:auto;height:40px;padding:0 12px;border-radius:9px;font-size:15px;font-weight:600}
@@ -221,6 +227,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
       <div class="tabs push">
         <button data-tab="kw" class="on">주제어</button>
         <button data-tab="pop">우리 도서관 인기도서</button>
+        <button data-tab="hot">요즘 뜨는 책</button>
       </div>
     </div>
     <div class="pbody">
@@ -233,6 +240,10 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
           <button id="runKw">찾기</button>
         </div>
         <span class="seg"><label><input type="radio" name="kwSort" value="new"><span>최신순</span></label><label><input type="radio" name="kwSort" value="loan" checked><span>대출 많은 순</span></label></span>
+        <div class="kwtrend hide" id="kwTrend"><span class="tag" id="kwTrendLbl"></span><span class="kwchips" id="kwChips"></span></div>
+      </div>
+      <div id="tab-hot" class="hide">
+        <div class="bar"><span class="hint" id="hotInfo">전국 공공도서관에서 최근 대출이 크게 늘어난 책</span><label class="check push"><input type="checkbox" id="hotMiss"> 제주에 없는 책만</label><button class="ghost small" id="runHot">새로 불러오기</button></div>
       </div>
       <div id="tab-pop" class="hide">
         <div class="line">
@@ -500,12 +511,12 @@ async function fillIsbn(list, el, entry){
 // ---------------- 왼쪽 결과 ----------------
 function paintL(){
   $('boxL').classList.toggle('hide', !S.L.length);
-  const pop = S.Lmode === 'pop';
-  $('mineL').parentElement.classList.toggle('hide', pop);
+  const pop = S.Lmode === 'pop', hot = S.Lmode === 'hot';
+  $('mineL').parentElement.classList.toggle('hide', pop || hot);
   const shown = pageL(), from = S.Lpage * viewN(), pages = Math.ceil(S.L.length / viewN());
-  const rows = shown.filter(b => pop || !$('mineL').checked || holdsMine(b));
+  const rows = shown.filter(b => hot ? (!$('hotMiss').checked || (b.libs && !b.libs.length)) : (pop || !$('mineL').checked || holdsMine(b)));
   const range = pages > 1 ? `${from + 1}~${from + shown.length}번` : `${shown.length}권`;
-  $('infoL').textContent = !S.L.length ? '' : pop ? `${esc(libName(myLib()))} 대출 순위 · ${S.L.length}권 중 ${range}` : `${S.L.length}권 중 ${range} · 우리 도서관 ${shown.filter(holdsMine).length}권`;
+  $('infoL').textContent = !S.L.length ? '' : hot ? `전국 대출 급상승 · ${S.hotDate || ''} 기준 · ${S.L.length}권 중 ${range} · 제주에 없는 책 ${shown.filter(b => b.libs && !b.libs.length).length}권` : pop ? `${esc(libName(myLib()))} 대출 순위 · ${S.L.length}권 중 ${range}` : `${S.L.length}권 중 ${range} · 우리 도서관 ${shown.filter(holdsMine).length}권`;
   $('pagerL').classList.toggle('hide', pages <= 1);
   $('pgInfo').textContent = `${S.Lpage + 1} / ${pages}`; $('pgPrev').disabled = S.Lpage <= 0; $('pgNext').disabled = S.Lpage >= pages - 1;
   if(!rows.length){ $('tbodyL').innerHTML = `<tr><td colspan="5" class="hint">${S.L.length ? '해당 없음' : ''}</td></tr>`; return; }
@@ -518,7 +529,7 @@ function paintL(){
     const like = b.isbn ? `<button class="small ghost" data-like="L${i}" style="margin-top:4px">비슷한 책</button>` : '';
     return `<tr class="${!pop && holdsMine(b)?'mine':''}">
       <td class="ck"><input type="checkbox" data-sel="L${i}" ${isSel(b)?'checked':''} aria-label="선택"></td>
-      <td><b>${esc(b.title)}</b><br><span class="tag">${esc(b.author)} · ${esc(b.publisher)}${b.year?' · '+esc(b.year):''}</span>
+      <td>${hot && b.rank ? `<span class="hotrank">${esc(b.rank)}</span>` : ''}<b>${esc(b.title)}</b>${hot && +b.diff > 0 ? `<span class="hotup">▲${esc(b.diff)}</span>` : ''}<br><span class="tag">${esc(b.author)} · ${esc(b.publisher)}${b.year?' · '+esc(b.year):''}</span>
         ${starsHtml(b) ? '<br>' + starsHtml(b) : ''}</td>
       <td class="tag">${esc(b.kdc)} ${esc(b.kdcName)}${audience(b.add)?'<br>'+audience(b.add):''}</td>
       <td>${libsHtml}</td><td>${loan}${loan&&like?'<br>':''}${like}</td></tr>`;
@@ -589,7 +600,7 @@ $('mineL').onchange = paintL;
 document.querySelectorAll('input[name="fR"]').forEach(r => r.onchange = paintR);
 $('allL').onclick = () => { pageL().filter(b => !$('mineL').checked || holdsMine(b)).forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
 $('allR').onclick = () => { filterR().forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
-function busy(side, on){ if(side === 'L') S.busyL = on; (side === 'L' ? ['runKw','runPop','viewN'] : ['runList']).forEach(id => $(id).disabled = on); }
+function busy(side, on){ if(side === 'L') S.busyL = on; (side === 'L' ? ['runKw','runPop','runHot','viewN'] : ['runList']).forEach(id => $(id).disabled = on); }
 function doneL(){ msg('msgL',''); paintL(); }
 
 // ---------------- 왼쪽: 주제어 ----------------
@@ -626,6 +637,7 @@ $('pgPrev').onclick = () => turnL(-1); $('pgNext').onclick = () => turnL(1);
 async function ensureChecked(){
   const todo = pageL().filter(b => b.libs === null && !b.err);
   paintL();
+  if(!$('key').value.trim()) return;
   if(todo.length && await checkHoldings(todo, 'msgL') === false){ paintL(); return; }
   await checkLoans(pageL());
   doneL();
@@ -647,6 +659,52 @@ $('runPop').onclick = async () => {
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
   finally{ busy('L', false); }
 };
+
+// ---------------- 왼쪽: 이달의 키워드 · 요즘 뜨는 책 ----------------
+const listOf = (r, key, inner) => (r[key] || []).map(x => (x && x[inner]) || x).filter(x => x && typeof x === 'object');
+function daysAgo(n){ const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10); }
+function paintTrends(){
+  const t = store.get('trends', {}) || {}, kws = (t.keywords || []).slice(0, 12);
+  $('kwTrend').classList.toggle('hide', !kws.length);
+  $('kwTrendLbl').textContent = kws.length ? `이달의 키워드${t.month ? ' (' + t.month.replace('-', '.') + ')' : ''}` : '';
+  $('kwChips').innerHTML = kws.map(k => `<button class="kwchip" data-kw="${esc(k.w)}">${esc(k.w)}</button>`).join('');
+}
+$('kwChips').onclick = e => { const b = e.target.closest('[data-kw]'); if(!b || S.busyL) return; $('kw').value = b.dataset.kw; $('runKw').click(); };
+async function liveTrends(){
+  if(!$('key').value.trim() || store.get('trendsLiveDay', '') === today()) return;
+  const t = store.get('trends', {}) || {};
+  try{
+    if(!(t.keywords || []).length){
+      for(const back of [0, 1]){
+        const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - back); const m = d.toISOString().slice(0,7);
+        const kws = listOf(await api('monthlyKeywords', {month:m}), 'keywords', 'keyword').filter(k => k.word).map(k => ({w:String(k.word).trim(), n:+k.weight || 0})).sort((a, b) => b.n - a.n);
+        if(kws.length){ t.month = m; t.keywords = kws.slice(0, 30); break; }
+      }
+    }
+    store.set('trends', t); store.set('trendsLiveDay', today()); paintTrends();
+  }catch(e){}
+}
+async function runHot(force){
+  busy('L', true); progress('msgL', '대출 급상승 도서를 불러오는 중…');
+  try{
+    const t = store.get('trends', {}) || {};
+    let hot = t.hot, old = !hot || !hot.date || (Date.now() - Date.parse(hot.date)) / 864e5 > 8;
+    if((force || old) && $('key').value.trim()){
+      for(const back of [1, 2, 3]){
+        const res = listOf(await api('hotTrend', {searchDt:daysAgo(back)}), 'results', 'result').filter(r => (r.docs || []).length).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        if(res.length){ hot = {date:String(res[0].date || daysAgo(back)), books:res[0].docs.map(d => d.doc || d).map(d => ({t:d.bookname, a:d.authors, p:d.publisher, y:String(d.publication_year || ''), isbn:String(d.isbn13 || ''), kdc:String(d.class_no || ''), kn:d.class_nm || '', add:String(d.addition_symbol || ''), rank:d.no || '', diff:d.difference || ''}))}; t.hot = hot; store.set('trends', t); break; }
+      }
+    }
+    if(!hot || !(hot.books || []).length){ S.L = []; S.Lmode = 'hot'; paintL(); msg('msgL', $('key').value.trim() ? '대출 급상승 도서를 받지 못했습니다. 잠시 뒤 다시 불러오세요.' : '아직 받아 둔 급상승 도서가 없습니다. 인증키를 넣으면 바로 불러옵니다.', 'warn'); return; }
+    S.hotDate = hot.date;
+    S.L = dedupe(hot.books.map(x => { const b = toBook({bookname:x.t, authors:x.a, publisher:x.p, publication_year:x.y, isbn13:x.isbn, class_no:x.kdc, class_nm:x.kn, addition_symbol:x.add}, '대출 급상승'); b.rank = x.rank; b.diff = x.diff; const hit = b.isbn && cacheGet(b.isbn); if(hit) b.libs = hit; return b; }));
+    S.Lmode = 'hot'; S.Lpage = 0;
+    await ensureChecked(); msg('msgL', '');
+  }catch(e){ msg('msgL', esc(e.message), 'bad'); }
+  finally{ busy('L', false); }
+}
+$('runHot').onclick = () => runHot(true);
+$('hotMiss').onchange = () => paintL();
 
 // ---------------- 오른쪽: 추천목록 ----------------
 function saveShelf(){ store.set('shelf', shelf); paintShelf(); }
@@ -776,6 +834,8 @@ async function pullFeed(quiet){
     const fresh = (d.lists || []).map((L, i) => ({id:'F' + i + '_' + L.src + '_' + L.name, src:L.src, name:L.name, saved:d.updated || today(), feed:true,
       books:(L.books || []).map(b => ({t:b.t, a:b.a, p:b.p, isbn:b.isbn || '', g:b.g || '', auto:!!b.auto}))}));
     catalog = catalog.filter(c => !c.feed).concat(fresh);
+    if(d.trends && ((d.trends.keywords || []).length || d.trends.hot)) store.set('trends', d.trends);
+    paintTrends();
     let h = 0;
     Object.entries(d.holdings || {}).forEach(([isbn, x]) => { const t = Date.parse(x.d); if(!isNaN(t)){ store.set('own.' + isbn, {t:Date.now(), libs:x.libs || []}); h++; } });
     rebuildShelf(); saveCatalog();
@@ -852,7 +912,8 @@ function download(name, text){ const a = document.createElement('a'); a.href = U
 function flash(btn, t){ const o = btn.textContent; btn.textContent = t; setTimeout(() => btn.textContent = o, 1500); }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['kw','pop'].forEach(t => $('tab-'+t).classList.toggle('hide', t !== b.dataset.tab)); msg('msgL','');
+  ['kw','pop','hot'].forEach(t => $('tab-'+t).classList.toggle('hide', t !== b.dataset.tab)); msg('msgL','');
+  if(b.dataset.tab === 'hot' && S.Lmode !== 'hot' && !S.busyL) runHot(false);
 });
 $('refreshLibs').onclick = async () => {
   try{
@@ -885,7 +946,7 @@ $('popTo').value = d0.toISOString().slice(0,10); $('popFrom').value = f0.toISOSt
 $('selTitle').value = store.get('selTitle', '');
 const DEFAULT_FEED = 'https://raw.githubusercontent.com/hallalb2008-design/jeju-curation-lists/main/data/lists.json';
 $('feedUrl').value = store.get('feedUrl', '') || DEFAULT_FEED;
-paintCount(); paintCatalog(); paintShelf(); paintFeed(); paintSel(); paintAll();
+paintCount(); paintCatalog(); paintShelf(); paintFeed(); paintSel(); paintAll(); paintTrends(); liveTrends();
 $('jsOff').remove();
 if($('feedUrl').value.trim() && store.get('feedPulled', '') !== today()) pullFeed(true);
 })();
