@@ -24,7 +24,7 @@ D4L_KEY = os.environ.get("DATA4LIB_KEY", "").strip()
 MAX_CALLS = int(os.environ.get("MAX_CALLS", "450"))
 D4L_PAUSE = float(os.environ.get("D4L_PAUSE", "0.7"))
 REFRESH_DAYS = int(os.environ.get("REFRESH_DAYS", "30"))
-NL_MONTHS = int(os.environ.get("NL_MONTHS", "12"))          # 최근 몇 달 치 사서추천도서를 유지할지
+FROM_YEAR = int(os.environ.get("FROM_YEAR", "2023"))       # 이 해 1월부터 추천목록을 모은다
 REGION = "39"                                                 # 제주
 NL_URL = os.environ.get("NL_API_URL", "https://nl.go.kr/NL/search/openApi/saseoApi.do")
 D4L = os.environ.get("D4L_API_URL", "https://data4library.kr/api/")
@@ -106,29 +106,30 @@ def fetch_nl():
     if not NL_KEY:
         log("NL_API_KEY 없음 - 사서추천도서 자동 수집 건너뜀")
         return []
-    start = (TODAY.replace(day=1) - dt.timedelta(days=31 * (NL_MONTHS - 1))).replace(day=1)
-    params = {"key": NL_KEY, "startRowNumApi": 1, "endRowNumApi": 500,
-              "start_date": start.strftime("%Y%m%d"), "end_date": TODAY.strftime("%Y%m%d")}
-    body = get(NL_URL, params, as_json=False)
-    recs = []
-    try:  # 응답이 XML인 경우
-        root = ET.fromstring(body)
-        for node in root.iter():
-            kids = list(node)
-            if kids and all(len(list(k)) == 0 for k in kids) and any(k.tag.lower() in ("recom_title", "recomtitle", "title") for k in kids):
-                recs.append({k.tag: (k.text or "") for k in kids})
-    except ET.ParseError:  # JSON인 경우
-        data = json.loads(body)
-        stack = [data]
-        while stack:
-            x = stack.pop()
-            if isinstance(x, dict):
-                if any(k.lower() in ("recom_title", "recomtitle", "title") for k in x):
-                    recs.append(x)
-                else:
-                    stack.extend(x.values())
-            elif isinstance(x, list):
-                stack.extend(x)
+    recs, body = [], ""
+    for year in range(FROM_YEAR, TODAY.year + 1):   # 한 해씩 나눠 받는다 (1회 최대 500권)
+        params = {"key": NL_KEY, "startRowNumApi": 1, "endRowNumApi": 500,
+                  "start_date": f"{year}0101", "end_date": min(dt.date(year, 12, 31), TODAY).strftime("%Y%m%d")}
+        body = get(NL_URL, params, as_json=False)
+        try:  # 응답이 XML인 경우
+            root = ET.fromstring(body)
+            for node in root.iter():
+                kids = list(node)
+                if kids and all(len(list(k)) == 0 for k in kids) and any(k.tag.lower() in ("recom_title", "recomtitle", "title") for k in kids):
+                    recs.append({k.tag: (k.text or "") for k in kids})
+        except ET.ParseError:  # JSON인 경우
+            data = json.loads(body)
+            stack = [data]
+            while stack:
+                x = stack.pop()
+                if isinstance(x, dict):
+                    if any(k.lower() in ("recom_title", "recomtitle", "title") for k in x):
+                        recs.append(x)
+                    else:
+                        stack.extend(x.values())
+                elif isinstance(x, list):
+                    stack.extend(x)
+        time.sleep(1)
     if not recs:
         log("사서추천도서 응답에서 도서를 찾지 못함. 응답 앞부분:", body[:300])
     groups = {}
@@ -141,7 +142,9 @@ def fetch_nl():
         item = {k: b[k] for k in ("t", "a", "p", "isbn", "g")}
         if b["c"]:
             item["c"] = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", b["c"])).strip()[:600]  # 책 소개(나중에 AI 추천 이유 근거)
-        groups.setdefault(name, []).append(item)
+        g = groups.setdefault(name, [])
+        if not any((x["isbn"] and x["isbn"] == item["isbn"]) or norm(x["t"]) == norm(item["t"]) for x in g):  # 연도 경계 중복 방지
+            g.append(item)
     lists = [{"src": "nl", "name": n, "books": bs} for n, bs in groups.items()]
     def ym(n):
         m = re.match(r"(\d{4})년 (\d{1,2})월", n)
@@ -155,7 +158,6 @@ def fetch_nl():
 NLCY_URL = os.environ.get("NLCY_URL", "https://www.nlcy.go.kr/NLCY/contents/C10600000000.do")
 NLCY_GROUPS = [("_nlcy_normal0801", "유아"), ("_nlcy_normal0802", "초등 저학년"),
                ("_nlcy_normal0803", "초등 고학년"), ("_nlcy_normal0804", "청소년")]
-NLCY_MONTHS = int(os.environ.get("NLCY_MONTHS", "12"))
 
 
 def _txt(h):
@@ -194,10 +196,10 @@ def parse_nlcy(page):
 
 
 def fetch_nlcy():
-    cutoff = (TODAY.year * 12 + TODAY.month) - NLCY_MONTHS
+    cutoff = FROM_YEAR * 12   # FROM_YEAR 1월부터
     groups = {}
     for code, label in NLCY_GROUPS:
-        for year in sorted({TODAY.year, (TODAY.replace(day=1) - dt.timedelta(days=31 * NLCY_MONTHS)).year}, reverse=True):
+        for year in range(TODAY.year, FROM_YEAR - 1, -1):
             page = get(NLCY_URL, {"schM": "list", "page": 1, "viewCount": 200, "schOpt2": f"{year}-",
                                   "ext2": 1, "schOpt3": "search", "schBdcode": code}, as_json=False)
             for b in parse_nlcy(page):
