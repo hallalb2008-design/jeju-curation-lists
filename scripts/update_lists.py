@@ -243,14 +243,18 @@ def fetch_trends():
         if not res:
             continue
         res.sort(key=lambda r: str(r.get("date", "")), reverse=True)
-        books = []
-        for d in res[0]["docs"]:
+        books, seen = [], set()
+        for d in [x for r in res for x in r["docs"]]:   # 최근 며칠 치를 합치고 같은 책은 한 번만
             d = d.get("doc", d)
+            k = clean_isbn(d.get("isbn13", "")) or d.get("bookname", "")
+            if k in seen:
+                continue
+            seen.add(k)
             books.append({"t": d.get("bookname", ""), "a": d.get("authors", ""), "p": d.get("publisher", ""),
                           "y": str(d.get("publication_year", "")), "isbn": clean_isbn(d.get("isbn13", "")),
                           "kdc": str(d.get("class_no", "")), "kn": d.get("class_nm", ""), "add": str(d.get("addition_symbol", "")),
-                          "rank": d.get("no", ""), "diff": d.get("difference", "")})
-        tr["hot"] = {"date": str(res[0].get("date") or day.isoformat()), "books": [b for b in books if b["t"]]}
+                          "rank": str(len(books) + 1), "diff": d.get("difference", "")})
+        tr["hot"] = {"date": str(res[0].get("date") or day.isoformat()), "from": str(res[-1].get("date", "")), "books": [b for b in books if b["t"]]}
         break
     log(f"이달의 키워드 {len(tr.get('keywords', []))}개, 대출 급상승 {len(tr.get('hot', {}).get('books', []))}권")
     return tr
