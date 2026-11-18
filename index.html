@@ -124,7 +124,9 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 
 /* 표 */
 .tools{margin-bottom:14px}
-.kwtrend{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px}
+.kwtrend{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#kwTrendLbl{flex-basis:100%;margin-bottom:4px}
+#pA .tabs button{padding:0 14px;font-size:15.5px}
 .kwchips{display:contents}
 .kwchip{height:34px;padding:0 13px;border:1px solid var(--edge);border-radius:999px;background:#fff;color:var(--ink);font-size:15px;font-weight:600}
 .kwchip:hover{background:#fff;border-color:var(--c);color:var(--c-dark)}
@@ -226,6 +228,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
       <h2>도서 찾기</h2>
       <div class="tabs push">
         <button data-tab="kw" class="on">주제어</button>
+        <button data-tab="trend">이달의 키워드</button>
         <button data-tab="pop">우리 도서관 인기도서</button>
         <button data-tab="hot">요즘 뜨는 책</button>
       </div>
@@ -233,14 +236,16 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
     <div class="pbody">
       <div id="tab-kw">
         <div class="line">
-          <input type="text" id="kw" placeholder="주제어 입력 (예: 제주 바다)" aria-label="주제어" style="flex:3">
+          <input type="text" id="kw" placeholder="주제어 (여러 개는 제주 &amp; 바다)" aria-label="주제어" style="flex:3">
           <select id="kwAge" aria-label="대상">
             <option value="">대상 전체</option><option value="young">어린이·청소년</option><option value="adult">일반</option>
           </select>
           <button id="runKw">찾기</button>
         </div>
         <span class="seg"><label><input type="radio" name="kwSort" value="new"><span>최신순</span></label><label><input type="radio" name="kwSort" value="loan" checked><span>대출 많은 순</span></label></span>
-        <div class="kwtrend hide" id="kwTrend"><span class="tag" id="kwTrendLbl"></span><span class="kwchips" id="kwChips"></span></div>
+      </div>
+      <div id="tab-trend" class="hide">
+        <div class="kwtrend" id="kwTrend"><span class="hint" id="kwTrendLbl"></span><span class="kwchips" id="kwChips"></span></div>
       </div>
       <div id="tab-hot" class="hide">
         <div class="bar"><span class="hint" id="hotInfo">전국 공공도서관에서 최근 대출이 크게 늘어난 책</span><label class="check push"><input type="checkbox" id="hotMiss"> 제주에 없는 책만</label><button class="ghost small" id="runHot">새로 불러오기</button></div>
@@ -606,20 +611,33 @@ function doneL(){ msg('msgL',''); paintL(); }
 // ---------------- 왼쪽: 주제어 ----------------
 $('runKw').onclick = async () => {
   const kw = $('kw').value.trim(); if(!kw){ msg('msgL','주제어를 입력하세요.','warn'); return; }
+  const terms = [...new Set(kw.split(/\s*[&＆]\s*/).map(t => t.trim()).filter(Boolean))], label = terms.join(' & ');
   const age = $('kwAge').value, sortBy = document.querySelector('input[name="kwSort"]:checked').value;
   busy('L', true); progress('msgL', '도서를 찾는 중…');
   try{
     let pool = [];
-    for(let page = 1; page <= 3 && pool.length < 100; page++){
-      const got = docsOf(await api('srchBooks', {keyword:kw, pageNo:page, pageSize:50, sort:sortBy === 'new' ? 'pubYear' : 'loan', order:'desc'})).map(d => toBook(d, '주제어: ' + kw));
-      pool = pool.concat(got.filter(b => ageOk(b, age)));
-      if(got.length < 50) break;
+    const fetchTerm = async (term, maxPage) => {
+      let out = [];
+      for(let page = 1; page <= maxPage; page++){
+        const got = docsOf(await api('srchBooks', {keyword:term, pageNo:page, pageSize:50, sort:sortBy === 'new' ? 'pubYear' : 'loan', order:'desc'})).map(d => toBook(d, '주제어: ' + label));
+        out = out.concat(got.filter(b => ageOk(b, age)));
+        if(got.length < 50 || (terms.length === 1 && out.length >= 100)) break;
+      }
+      return dedupe(out);
+    };
+    if(terms.length === 1) pool = await fetchTerm(terms[0], 3);
+    else {
+      // 여러 단어: 단어마다 찾아서 모두에 들어 있는 책만 남긴다 (&)
+      const sets = [];
+      for(const [i, term] of terms.entries()){ progress('msgL', `「${term}」 찾는 중… (${i + 1}/${terms.length})`); sets.push(await fetchTerm(term, 4)); }
+      const keysIn = sets.slice(1).map(s => new Set(s.map(keyOf)));
+      pool = sets[0].filter(b => keysIn.every(k => k.has(keyOf(b))));
     }
     pool = dedupe(pool);
     const byLoan = (a,b) => (+b.loans||0) - (+a.loans||0);
     pool.sort(sortBy === 'new' ? (a,b) => (parseInt(b.year)||0) - (parseInt(a.year)||0) || byLoan(a,b) : byLoan);
     S.L = pool.slice(0, 100); S.Lmode = 'kw'; S.Lpage = 0;
-    if(!S.L.length){ msg('msgL','찾은 도서가 없습니다. 더 넓은 단어로 바꿔 보세요.','warn'); paintL(); return; }
+    if(!S.L.length){ msg('msgL', terms.length > 1 ? `「${esc(label)}」가 모두 들어간 책을 찾지 못했습니다. 단어를 하나 빼 보세요.` : '찾은 도서가 없습니다. 더 넓은 단어로 바꿔 보세요.', 'warn'); paintL(); return; }
     await ensureChecked();
   }catch(e){ msg('msgL', esc(e.message), 'bad'); }
   finally{ busy('L', false); }
@@ -664,12 +682,11 @@ $('runPop').onclick = async () => {
 const listOf = (r, key, inner) => (r[key] || []).map(x => (x && x[inner]) || x).filter(x => x && typeof x === 'object');
 function daysAgo(n){ const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10); }
 function paintTrends(){
-  const t = store.get('trends', {}) || {}, kws = (t.keywords || []).slice(0, 12);
-  $('kwTrend').classList.toggle('hide', !kws.length);
-  $('kwTrendLbl').textContent = kws.length ? `이달의 키워드${t.month ? ' (' + t.month.replace('-', '.') + ')' : ''}` : '';
+  const t = store.get('trends', {}) || {}, kws = (t.keywords || []).slice(0, 30);
+  $('kwTrendLbl').textContent = kws.length ? `${t.month ? t.month.replace('-', '년 ').replace(/년 0?/, '년 ') + '월 ' : ''}전국 공공도서관 대출 키워드입니다. 누르면 그 단어로 찾습니다.` : (store.get('key', '') || $('key').value.trim() ? '키워드를 불러오는 중이거나 아직 없습니다.' : '아직 받아 둔 키워드가 없습니다. 인증키를 넣으면 바로 불러옵니다.');
   $('kwChips').innerHTML = kws.map(k => `<button class="kwchip" data-kw="${esc(k.w)}">${esc(k.w)}</button>`).join('');
 }
-$('kwChips').onclick = e => { const b = e.target.closest('[data-kw]'); if(!b || S.busyL) return; $('kw').value = b.dataset.kw; $('runKw').click(); };
+$('kwChips').onclick = e => { const b = e.target.closest('[data-kw]'); if(!b || S.busyL) return; $('kw').value = b.dataset.kw; document.querySelector('#pA .tabs button[data-tab="kw"]').click(); $('runKw').click(); };
 async function liveTrends(){
   if(!$('key').value.trim() || store.get('trendsLiveDay', '') === today()) return;
   const t = store.get('trends', {}) || {};
@@ -912,7 +929,8 @@ function download(name, text){ const a = document.createElement('a'); a.href = U
 function flash(btn, t){ const o = btn.textContent; btn.textContent = t; setTimeout(() => btn.textContent = o, 1500); }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['kw','pop','hot'].forEach(t => $('tab-'+t).classList.toggle('hide', t !== b.dataset.tab)); msg('msgL','');
+  ['kw','trend','pop','hot'].forEach(t => $('tab-'+t).classList.toggle('hide', t !== b.dataset.tab)); msg('msgL','');
+  if(b.dataset.tab === 'trend'){ paintTrends(); liveTrends(); }
   if(b.dataset.tab === 'hot' && S.Lmode !== 'hot' && !S.busyL) runHot(false);
 });
 $('refreshLibs').onclick = async () => {
