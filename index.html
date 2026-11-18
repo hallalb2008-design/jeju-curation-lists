@@ -874,7 +874,8 @@ async function pullFeed(quiet){
     if(d.type !== 'jeju-curation-lists') throw new Error('목록 파일 형식이 아닙니다');
     const fresh = (d.lists || []).map((L, i) => ({id:'F' + i + '_' + L.src + '_' + L.name, src:L.src, name:L.name, saved:d.updated || today(), feed:true,
       books:(L.books || []).map(b => ({t:b.t, a:b.a, p:b.p, isbn:b.isbn || '', g:b.g || '', auto:!!b.auto}))}));
-    catalog = catalog.filter(c => !c.feed).concat(fresh);
+    const feedSrc = new Set(fresh.map(c => c.src).filter(x => x !== 'etc'));  // 자동 갱신이 맡는 출처는 예전에 이 컴퓨터에 저장된 목록을 지운다
+    catalog = catalog.filter(c => !c.feed && !feedSrc.has(c.src)).concat(fresh);
     if(d.trends && ((d.trends.keywords || []).length || d.trends.hot)) store.set('trends', d.trends);
     paintTrends();
     let h = 0;
