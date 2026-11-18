@@ -322,6 +322,7 @@ td details summary{cursor:pointer;font-size:15px;color:var(--c-dark);font-weight
         <div class="bar tools">
           <select id="viewN" aria-label="보기"><option value="10">10권</option><option value="20" selected>20권</option><option value="50">50권</option><option value="100">100권</option></select>
           <label class="check"><input type="checkbox" id="mineL"> 우리 도서관만</label>
+          <label class="check"><input type="checkbox" id="missL"> 우리 도서관에 없는 책만</label>
           <button class="ghost small push" id="allL">모두 선택</button>
         </div>
         <div class="tablewrap">
@@ -538,9 +539,9 @@ async function fillIsbn(list, el, entry){
 function paintL(){
   $('boxL').classList.toggle('hide', !S.L.length);
   const pop = S.Lmode === 'pop', hot = S.Lmode === 'hot';
-  $('mineL').parentElement.classList.toggle('hide', pop || hot);
+  $('mineL').parentElement.classList.toggle('hide', pop || hot); $('missL').parentElement.classList.toggle('hide', pop || hot);
   const shown = pageL(), from = S.Lpage * viewN(), pages = Math.ceil(S.L.length / viewN());
-  const rows = shown.filter(b => hot ? (!$('hotMiss').checked || (b.libs && !b.libs.length)) : (pop || !$('mineL').checked || holdsMine(b)));
+  const rows = shown.filter(b => hot ? (!$('hotMiss').checked || (b.libs && !b.libs.length)) : (pop || passMine(b)));
   const range = pages > 1 ? `${from + 1}~${from + shown.length}번` : `${shown.length}권`;
   $('infoL').textContent = !S.L.length ? '' : hot ? `전국 대출 급상승 · ${S.hotDate || ''} 기준 · ${S.L.length}권 중 ${range} · 제주에 없는 책 ${shown.filter(b => b.libs && !b.libs.length).length}권` : pop ? `${esc(libName(myLib()))} 대출 순위 · ${S.L.length}권 중 ${range}` : `${S.L.length}권 중 ${range} · 우리 도서관 ${shown.filter(holdsMine).length}권`;
   $('pagerL').classList.toggle('hide', pages <= 1);
@@ -622,9 +623,11 @@ function rowOf(code){ return S[code[0]][+code.slice(1)]; }
     }
   });
 });
-$('mineL').onchange = paintL;
+function passMine(b){ return $('mineL').checked ? holdsMine(b) : $('missL').checked ? !!(b.libs && !holdsMine(b)) : true; }
+$('mineL').onchange = () => { if($('mineL').checked) $('missL').checked = false; paintL(); };
+$('missL').onchange = () => { if($('missL').checked) $('mineL').checked = false; paintL(); };
 document.querySelectorAll('input[name="fR"]').forEach(r => r.onchange = paintR);
-$('allL').onclick = () => { pageL().filter(b => !$('mineL').checked || holdsMine(b)).forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
+$('allL').onclick = () => { pageL().filter(passMine).forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
 $('allR').onclick = () => { filterR().forEach(b => { if(!isSel(b)) selected.push(slim(b)); }); saveSel(); paintAll(); };
 function busy(side, on){ if(side === 'L') S.busyL = on; (side === 'L' ? ['runKw','runPop','runHot','viewN'] : ['runList']).forEach(id => $(id).disabled = on); }
 function doneL(){ msg('msgL',''); paintL(); }
