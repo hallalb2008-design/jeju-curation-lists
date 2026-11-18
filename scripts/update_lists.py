@@ -281,18 +281,21 @@ def read_manual():
                     return i
             return -1
         iT, iA, iP, iI, iG = col("서명", "도서명", "title"), col("저자", "author"), col("출판", "publisher"), col("isbn"), col("대상", "학년", "연령", "분야")
+        iL = col("목록")
         stem = f.stem
         src = next((v for k, v in SRC_PREFIX.items() if stem.lower().startswith(k.lower())), "etc")
         name = re.sub(r"^(bookstart|childbook|nlcy|nl|북스타트|어도연|어린이도서연구회|국립어린이|국중)[_\s-]*", "", stem, flags=re.I).replace("_", " ").strip() or stem
-        books = []
+        groups = {}
         for r in rows[1:]:
             g = lambda i: (r[i].strip() if 0 <= i < len(r) else "")
             if not g(iT):
                 continue
-            books.append({"t": g(iT), "a": g(iA), "p": g(iP), "isbn": clean_isbn(g(iI)), "g": g(iG)})
-        if books:
-            lists.append({"src": src, "name": name, "books": books, "manual": True})
-            log(f"수동 목록 {f.name}: {len(books)}권 ({src})")
+            key = (g(iL) if iL >= 0 else "") or name
+            groups.setdefault(key, []).append({"t": g(iT), "a": g(iA), "p": g(iP), "isbn": clean_isbn(g(iI)), "g": g(iG)})
+        for key, books in groups.items():
+            lists.append({"src": src, "name": key, "books": books, "manual": True})
+        if groups:
+            log(f"수동 목록 {f.name}: {len(groups)}개 목록 {sum(map(len, groups.values()))}권 ({src})")
     return lists
 
 
