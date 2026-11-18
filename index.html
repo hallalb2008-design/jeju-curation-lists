@@ -396,7 +396,7 @@ const DEFAULT_LIBS = [
 const SOURCES = [
   {id:'nl', name:'국립중앙도서관 사서추천', short:'국중 사서추천'},
   {id:'nlcy', name:'국립어린이청소년도서관 추천', short:'국립어린이청소년 추천'},
-  {id:'bookstart', name:'북스타트', short:'북스타트'},
+  {id:'bookstart', name:'북스타트코리아 꾸러미도서', short:'북스타트'},
   {id:'childbook', name:'어린이도서연구회 권장', short:'어도연 권장'},
   {id:'etc', name:'기타', short:''}
 ];
@@ -417,7 +417,8 @@ let shelf = store.get('shelf', {});
 let catalog = store.get('catalog', []);
 const openSrc = new Set(store.get('openSrc', []));
 const openYear = store.get('openYear', {}) || {};
-const ymOf = name => { const m = /^(\d{4})년\s*(\d{1,2})월$/.exec(String(name).trim()); return m ? [+m[1], +m[2]] : null; };
+const STAGES = ['베이비','플러스','보물상자','초등','청소년','임신부','시니어'];
+const ymOf = name => { const s = String(name).trim(); let m = /^(\d{4})년\s*(\d{1,2})월$/.exec(s); if(m) return [+m[1], +m[2], m[2] + '월']; m = /^(\d{4})년\s+(.+)$/.exec(s); if(!m) return null; const i = STAGES.findIndex(k => m[2].startsWith(k)); return [+m[1], 100 - (i < 0 ? 99 : i), m[2]]; };
 function pillsOf(src){
   const lists = catalog.filter(c => c.src === src.id), dated = lists.filter(c => ymOf(c.name)), plain = lists.filter(c => !ymOf(c.name));
   const pill = (c, label) => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(label)}<i>${c.books.length}</i></button>`;
@@ -425,7 +426,7 @@ function pillsOf(src){
   if(dated.length){
     const years = [...new Set(dated.map(c => ymOf(c.name)[0]))].sort((a, b) => b - a), oy = openYear[src.id];
     html = years.map(y => { const n = dated.filter(c => ymOf(c.name)[0] === y).reduce((s, c) => s + c.books.length, 0); return `<button class="pill year ${oy === y ? 'open' : ''}" data-yr="${src.id}|${y}" aria-expanded="${oy === y}">${y}년<i>${n}</i></button>`; }).join('') + html;
-    if(years.includes(oy)) html += `<span class="months">${dated.filter(c => ymOf(c.name)[0] === oy).sort((a, b) => ymOf(b.name)[1] - ymOf(a.name)[1]).map(c => pill(c, ymOf(c.name)[1] + '월')).join('')}</span>`;
+    if(years.includes(oy)) html += `<span class="months">${dated.filter(c => ymOf(c.name)[0] === oy).sort((a, b) => ymOf(b.name)[1] - ymOf(a.name)[1]).map(c => pill(c, ymOf(c.name)[2])).join('')}</span>`;
   }
   return html;
 }
