@@ -306,17 +306,27 @@ def fill_isbn(lists, cache):
             if b["isbn"] or not b["t"]:
                 continue
             ck = norm(b["t"] + "|" + b["a"])
-            if ck in cache:
-                b["isbn"], b["auto"] = cache[ck], bool(cache[ck])
+            hit = cache.get(ck)
+            if hit and hit != "?2":
+                b["isbn"], b["auto"] = hit, True
                 continue
-            if calls >= MAX_CALLS:
+            if hit == "?2":  # 저자까지 넣어 찾아도 없던 책
+                continue
+            if calls >= MAX_CALLS - 1:
                 return
-            docs = [d.get("doc", d) for d in d4l("srchBooks", {"title": b["t"], "pageSize": 10}).get("docs", [])]
-            a0 = norm(re.split(r"[ ,;(]", b["a"] or " ")[0])
-            best = next((d for d in docs if norm(d.get("bookname")).startswith(norm(b["t"])) and (not a0 or a0 in norm(d.get("authors")))), None) \
+            a_raw = re.split(r"[ ,;(|/]", (b["a"] or "").strip() or " ")[0]
+            a0 = norm(a_raw)
+            pick = lambda docs: next((d for d in docs if norm(d.get("bookname")).startswith(norm(b["t"])) and (not a0 or a0 in norm(d.get("authors")))), None) \
                 or next((d for d in docs if norm(d.get("bookname")) == norm(b["t"])), None)
+            best = None
+            if a_raw:  # 짧은 그림책 제목은 제목만으로는 못 찾아서 저자를 함께 넣는다
+                best = pick([d.get("doc", d) for d in d4l("srchBooks", {"title": b["t"], "author": a_raw, "pageSize": 10}).get("docs", [])])
+            if not best:
+                best = pick([d.get("doc", d) for d in d4l("srchBooks", {"title": b["t"], "pageSize": 10}).get("docs", [])])
             cache[ck] = clean_isbn(best.get("isbn13")) if best else ""
             b["isbn"], b["auto"] = cache[ck], bool(cache[ck])
+            if not cache[ck]:
+                cache[ck] = "?2"
             if best and not b["p"]:
                 b["p"] = best.get("publisher", "")
 
