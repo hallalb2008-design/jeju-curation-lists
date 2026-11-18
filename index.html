@@ -106,6 +106,9 @@ button.quiet:hover,.filebtn:hover{background:var(--c-soft)}
 .pill:hover{background:#fff;border-color:var(--c);color:var(--c-dark)}
 .pill.on,.pill.on:hover{background:var(--c);border-color:var(--c);color:#fff}
 .pill i{font-style:normal;font-weight:500;opacity:.6;margin-left:6px}
+.years{display:contents}
+.pill.year.open{border-color:var(--c);color:var(--c-dark);box-shadow:inset 0 0 0 1px var(--c)}
+.months{order:9;display:flex;flex-wrap:wrap;gap:8px;width:100%;margin:2px 0 4px 8px;padding:8px 0 4px 14px;border-left:2px solid var(--line)}
 .pill.add{width:38px;padding:0;border-color:var(--c);background:var(--c);color:#fff;font-size:20px;font-weight:500;line-height:1;transition:transform .18s,background .12s,border-color .12s,color .12s}
 .pill.add:hover{background:var(--c-dark);border-color:var(--c-dark);color:#fff}
 .pill.add.open{background:#fff;color:var(--muted);border:1.5px dashed var(--edge);transform:rotate(45deg)}
@@ -407,6 +410,19 @@ let selected = store.get('selected', []);
 let shelf = store.get('shelf', {});
 let catalog = store.get('catalog', []);
 const openSrc = new Set(store.get('openSrc', []));
+const openYear = store.get('openYear', {}) || {};
+const ymOf = name => { const m = /^(\d{4})년\s*(\d{1,2})월$/.exec(String(name).trim()); return m ? [+m[1], +m[2]] : null; };
+function pillsOf(src){
+  const lists = catalog.filter(c => c.src === src.id), dated = lists.filter(c => ymOf(c.name)), plain = lists.filter(c => !ymOf(c.name));
+  const pill = (c, label) => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(label)}<i>${c.books.length}</i></button>`;
+  let html = plain.map(c => pill(c, c.name)).join('');
+  if(dated.length){
+    const years = [...new Set(dated.map(c => ymOf(c.name)[0]))].sort((a, b) => b - a), oy = openYear[src.id];
+    html = years.map(y => { const n = dated.filter(c => ymOf(c.name)[0] === y).reduce((s, c) => s + c.books.length, 0); return `<button class="pill year ${oy === y ? 'open' : ''}" data-yr="${src.id}|${y}" aria-expanded="${oy === y}">${y}년<i>${n}</i></button>`; }).join('') + html;
+    if(years.includes(oy)) html += `<span class="months">${dated.filter(c => ymOf(c.name)[0] === oy).sort((a, b) => ymOf(b.name)[1] - ymOf(a.name)[1]).map(c => pill(c, ymOf(c.name)[1] + '월')).join('')}</span>`;
+  }
+  return html;
+}
 const S = {L:[], R:[], Rtitle:'', Lpage:0};   // 왼쪽·오른쪽 결과
 
 // ---------------- 설정 ----------------
@@ -744,9 +760,7 @@ function paintCatalog(){
   const keepSrc = $('listSrc').value;
   $('listSrc').innerHTML = SOURCES.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   if(keepSrc) $('listSrc').value = keepSrc;
-  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}<i>${catalog.filter(c => c.src === src.id).length || ''}</i></button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${
-    catalog.filter(c => c.src === src.id).map(c => `<button class="pill ${S.Rtitle === listLabel(c) ? 'on' : ''}" data-run="${c.id}">${esc(c.name)}<i>${c.books.length}</i></button>`).join('')
-    }<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
+  $('catalog').innerHTML = SOURCES.filter(src => src.id !== 'etc' || catalog.some(c => c.src === 'etc')).map(src => `<div class="src"><button class="srcname" data-tog="${src.id}" aria-expanded="${openSrc.has(src.id)}">${esc(src.name)}<i>${catalog.filter(c => c.src === src.id).length || ''}</i></button><span class="pills${openSrc.has(src.id) ? '' : ' hide'}">${pillsOf(src)}<button class="pill add" data-add="${src.id}" title="목록 넣기" aria-label="${esc(src.name)} 목록 넣기">+</button></span></div>`).join('');
   $('manage').innerHTML = catalog.map(c => `<div class="mrow"><span>${esc(listLabel(c))} · ${c.books.length}권${c.feed ? ' · 자동' : ''}</span>
     <button class="quiet" data-dl="${c.id}">CSV</button><button class="quiet" data-rm="${c.id}">삭제</button></div>`).join('');
   markAdd();
@@ -754,7 +768,7 @@ function paintCatalog(){
 function csvCell(v){ v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; }
 async function runCatalog(c){
   S.R = c.books.map(b => toBook({bookname:b.t, authors:b.a, publisher:b.p, isbn13:b.isbn, g:b.g, auto:b.auto}, listLabel(c)));
-  S.Rtitle = listLabel(c); openSrc.add(c.src); paintCatalog();
+  S.Rtitle = listLabel(c); openSrc.add(c.src); if(ymOf(c.name)) openYear[c.src] = ymOf(c.name)[0]; paintCatalog();
   document.querySelector('input[name="fR"][value="all"]').checked = true;
   paintR();
   if(!$('key').value.trim()){
@@ -775,7 +789,8 @@ function showManage(on){ $('addBox').classList.toggle('hide', !on); setTimeout(m
 $('manageBtn').onclick = () => showManage($('addBox').classList.contains('hide'));
 $('listSrc').addEventListener('change', markAdd);
 function onListClick(e){
-  const t = e.target.closest('[data-add],[data-rm],[data-dl],[data-run],[data-tog]'); if(!t) return;
+  const t = e.target.closest('[data-add],[data-rm],[data-dl],[data-run],[data-tog],[data-yr]'); if(!t) return;
+  if(t.dataset.yr){ const [sid, y] = t.dataset.yr.split('|'); openYear[sid] = openYear[sid] === +y ? null : +y; store.set('openYear', openYear); paintCatalog(); return; }
   if(t.dataset.tog){ openSrc.has(t.dataset.tog) ? openSrc.delete(t.dataset.tog) : openSrc.add(t.dataset.tog); store.set('openSrc', [...openSrc]); paintCatalog(); return; }
   if(t.dataset.add){ if(t.classList.contains('open')){ showManage(false); return; } $('listSrc').value = t.dataset.add; showManage(true); $('listPaste').focus(); return; }
   if(t.dataset.rm){
